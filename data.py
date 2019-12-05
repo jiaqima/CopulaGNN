@@ -35,6 +35,12 @@ def generate_lsn(n=300,
                  seed=0,
                  root='./data',
                  save_file=False):
+    path = os.path.join(root, "lsn")
+    filename = "lsn_n{}_d{}_m{}_s{}.pkl".format(n, d, m, seed)
+    if not save_file and os.path.exists(os.path.join(path, filename)):
+        data, params = pickle.load(open(os.path.join(path, filename), "rb"))
+        return data
+
     rs = np.random.RandomState(seed=seed)
     x = rs.normal(size=(n, d))
     w_a = rs.normal(size=(d, d))
@@ -52,12 +58,9 @@ def generate_lsn(n=300,
     y = rs.multivariate_normal(y_mean, y_cov)
 
     if save_file:
-        path = os.path.join(root, "lsn")
         if not os.path.exists(path):
             os.makedirs(path)
         pickle.dump(((x, adj, y), (w_a, w_y)),
-                    open(
-                        os.path.join(path, "lsn_n{}_d{}_m{}_s{}.pkl".format(
-                            n, d, m, seed)), "wb"))
+                    open(os.path.join(path, filename), "wb"))
 
     return x, y, adj

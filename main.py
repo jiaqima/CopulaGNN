@@ -58,7 +58,7 @@ if args.dataset == "lsn":
         d=args.num_features,
         m=args.num_edges,
         root=args.path,
-        save_file=True)
+        save_file=False)
     data = to_data(x, y, adj)
     data.to(args.device)
     criterion = nn.MSELoss()
