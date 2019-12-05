@@ -60,7 +60,7 @@ def generate_lsn(n=300,
     if save_file:
         if not os.path.exists(path):
             os.makedirs(path)
-        pickle.dump(((x, adj, y), (w_a, w_y)),
+        pickle.dump(((x, y, adj), (w_a, w_y)),
                     open(os.path.join(path, filename), "wb"))
 
     return x, y, adj
