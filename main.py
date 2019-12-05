@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 
 import argparse
 import copy
+import os
 import random
 
 import numpy as np
@@ -145,6 +146,7 @@ def test():
 
 patience = args.patience
 best_metric = np.inf
+selected_metrics = []
 model.train()
 for epoch in range(args.num_epochs):
     train()
@@ -155,8 +157,17 @@ for epoch in range(args.num_epochs):
         if this_metric < best_metric:
             patience = args.patience
             best_metric = this_metric
+            selected_metrics = [valid_loss, test_loss]
         if patience == 0:
             break
         if args.verbose > 1:
             print("Epoch {}: train {:.2f}, valid {:.2f}, test {:.2f}".format(
                 epoch, train_loss, valid_loss, test_loss))
+
+if args.verbose == 0:
+    with open(
+            os.path.join(args.path, args.dataset, "results",
+                         "valid__{}__test__{}__seed__{}__model__{}".format(
+                             selected_metrics[0], selected_metrics[1],
+                             args.seed, args.model_type)), "w") as f:
+        pass
