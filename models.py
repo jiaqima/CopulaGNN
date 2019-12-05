@@ -128,7 +128,7 @@ class LSMReg(nn.Module):
             xy = torch.cat([x_query, x_key, y_query, y_key], dim=1)
             e_pred_neg = self.p_e_xy(xy)
 
-        return e_pred_pos, e_pred_neg, y_mu
+        return e_pred_pos, e_pred_neg, y_mu.squeeze()
 
     def nll_generative(self, data, post_y_mu):
         e_pred_pos, e_pred_neg, y_mu = self.forward(data)
