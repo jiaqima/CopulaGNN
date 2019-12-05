@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import copy
 import random
 
 import numpy as np
@@ -8,13 +9,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from data import generate_lsn, to_data
-from models import GATReg, GCNReg, MLPReg
+from models import GATReg, GCNReg, GenGNN, MLPReg
 
 parser = argparse.ArgumentParser(description='Main.')
 parser.add_argument("--verbose", type=int, default=2)
 parser.add_argument("--debug", action="store_true")
 parser.add_argument("--device", default="cuda")
-parser.add_argument("--seed", type=int, default=-1)
+parser.add_argument("--seed", type=int, default=10)
 
 # Dataset configuration
 parser.add_argument("--path", default="./data")
@@ -31,6 +32,7 @@ parser.add_argument("--dropout", type=float, default=0.)
 # Training configuration.
 parser.add_argument("--opt", default="Adam")
 parser.add_argument("--lr", type=float, default=0.001)
+parser.add_argument("--lamda", type=float, default=1e-3)
 
 # Other configuration
 parser.add_argument("--num_epochs", type=int, default=2000)
@@ -66,20 +68,34 @@ else:
     raise NotImplementedError(
         "Dataset {} is not supported.".format(args.dataset))
 
-num_features = data.x.size(1)
+model_args = {
+    "num_features": data.x.size(1),
+    "hidden_size": args.hidden_size,
+    "dropout": args.dropout,
+    "activation": "relu"
+}
 
 if args.model_type == "mlp":
-    model = MLPReg(num_features=num_features, hidden_size=args.hidden_size)
+    model = MLPReg(**model_args)
 elif args.model_type == "gcn":
-    model = GCNReg(
-        num_features=num_features,
-        hidden_size=args.hidden_size,
-        dropout=args.dropout)
+    model = GCNReg(**model_args)
 elif args.model_type == "gat":
-    model = GATReg(
-        num_features=num_features,
-        hidden_size=args.hidden_size,
-        dropout=args.dropout)
+    model = GATReg(**model_args)
+elif "_" in args.model_type:
+    gen_type, post_type = args.model_type.split("_")
+
+    gen_config = copy.deepcopy(model_args)
+    gen_config["type"] = gen_type
+    gen_config["neg_ratio"] = 1.0
+    if gen_type == "lsm":
+        gen_config["hidden_x"] = args.hidden_size
+
+    post_config = copy.deepcopy(model_args)
+    post_config["type"] = post_type
+    # if post_type == "gat":
+    #     post_config["num_heads"] = args.num_heads
+    #     post_config["hidden_size"] = int(args.hidden / args.num_heads)
+    model = GenGNN(gen_config, post_config)
 else:
     raise NotImplementedError(
         "Model {} is not supported.".format(args.model_type))
@@ -91,26 +107,50 @@ else:
     raise NotImplementedError(
         "Optimizer {} is not supported.".format(args.opt))
 
+if hasattr(model, "gen"):
+
+    def train_loss_fn(model, data):
+        post_y_pred = model(data)
+        nll_generative = model.gen.nll_generative(data, post_y_pred)
+        nll_discriminative = criterion(post_y_pred[data.train_mask],
+                                       data.y[data.train_mask])
+        return args.lamda * nll_generative + nll_discriminative
+else:
+
+    def train_loss_fn(model, data):
+        return criterion(model(data)[data.train_mask], data.y[data.train_mask])
+
+
+def test_loss_fn(logits, data, mask):
+    return criterion(logits[mask], data.y[mask]).item()
+
+
+def train():
+    model.train()
+    optimizer.zero_grad()
+    loss = train_loss_fn(model, data)
+    loss.backward()
+    optimizer.step()
+
+
+def test():
+    model.eval()
+    with torch.no_grad():
+        logits = model(data)
+        train_loss = test_loss_fn(logits, data, data.train_mask)
+        valid_loss = test_loss_fn(logits, data, data.valid_mask)
+        test_loss = test_loss_fn(logits, data, data.test_mask)
+    return train_loss, valid_loss, test_loss
+
+
 patience = args.patience
 best_metric = np.inf
 model.train()
 for epoch in range(args.num_epochs):
-    logits = model(data)
-    loss = criterion(logits[data.train_mask], data.y[data.train_mask])
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+    train()
     if (epoch + 1) % args.log_interval == 0:
-        model.eval()
-        with torch.no_grad():
-            logits = model(data)
-            loss = criterion(logits[data.train_mask], data.y[data.train_mask])
-            valid_loss = criterion(logits[data.valid_mask],
-                                   data.y[data.valid_mask])
-            test_loss = criterion(logits[data.test_mask],
-                                  data.y[data.test_mask])
-        model.train()
-        this_metric = valid_loss.item()
+        train_loss, valid_loss, test_loss = test()
+        this_metric = valid_loss
         patience -= 1
         if this_metric < best_metric:
             patience = args.patience
@@ -119,4 +159,4 @@ for epoch in range(args.num_epochs):
             break
         if args.verbose > 1:
             print("Epoch {}: train {:.2f}, valid {:.2f}, test {:.2f}".format(
-                epoch, loss.item(), valid_loss.item(), test_loss.item()))
+                epoch, train_loss, valid_loss, test_loss))
