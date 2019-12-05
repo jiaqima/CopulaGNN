@@ -1,42 +1,41 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
-import json
-import os
 import random
-from collections import OrderedDict
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchnet as tnt
-from models import MLP
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from utils import SEP
+from data import generate_lsn, to_data
+from models import GATReg, GCNReg, MLPReg
 
 parser = argparse.ArgumentParser(description='Main.')
-parser.add_argument("--dataset", default="lsn")
-parser.add_argument("--model_type", default="mlp")
-parser.add_argument("--path", default="./data/lsn")
 parser.add_argument("--verbose", type=int, default=2)
 parser.add_argument("--debug", action="store_true")
 parser.add_argument("--device", default="cuda")
 parser.add_argument("--seed", type=int, default=-1)
 
 # Dataset configuration
-# TODO: Add dataset specific arguments here.
+parser.add_argument("--path", default="./data")
+parser.add_argument("--dataset", default="lsn")
+parser.add_argument("--num_features", type=int, default=10)
+parser.add_argument("--num_nodes", type=int, default=300)
+parser.add_argument("--num_edges", type=int, default=5000)
 
 # Model configuration.
-# TODO: Add model specific arguments here.
+parser.add_argument("--model_type", default="mlp")
+parser.add_argument("--hidden_size", type=int, default=8)
+parser.add_argument("--dropout", type=float, default=0.)
 
 # Training configuration.
-# TODO: Add training specific arguments here.
+parser.add_argument("--opt", default="Adam")
+parser.add_argument("--lr", type=float, default=0.001)
 
 # Other configuration
-parser.add_argument("--num_epochs", type=int, default=100)
+parser.add_argument("--num_epochs", type=int, default=2000)
 parser.add_argument("--patience", type=int, default=10)
-parser.add_argument("--log_interval", type=int, default=500)
+parser.add_argument("--log_interval", type=int, default=10)
 parser.add_argument("--result_path", default=None)
 parser.add_argument("--save_model", action="store_true")
 parser.add_argument("--model_path", default=None)
@@ -53,72 +52,71 @@ if args.seed >= 0:
     if args.device.startswith("cuda"):
         torch.cuda.manual_seed(args.seed)
 
-# Prepare the dataset.
-dataloaders = {}
-input_shape = None
 if args.dataset == "lsn":
-    assert args.path.strip("/").split("/")[-1] == "lsn"
-    # Prepare dataloaders.
-    for phase in ["train", "valid", "test"]:
-        dataloaders[phase] = None
-        # TODO: Implement dataloaders.
-        raise NotImplementedError("Dataloaders are not implemented.")
-else:
-    raise NotImplementedError("Dataset %s is not supported." % args.dataset)
-
-# Initialize the model.
-model_config = {}
-# TODO: Specify model config.
-
-if args.model_type == "mlp":
-    model = MLP(model_config=model_config)
-    # TODO: Check if the model class instantiation is correct.
-    raise NotImplementedError("ModelClass is not checked.")
-else:
-    raise NotImplementedError("Model %s is not supported." % args.model_type)
-model.to(args.device)
-
-# Optimization criterions.
-criterions = {}
-# TODO: Specify criterions.
-raise NotImplementedError("`criterions` is not specified.")
-
-# Optimizer.
-train_config = {}
-# TODO: Specify train config.
-
-if train_config["optim"] == "SGD":
-    optimizer = optim.SGD(
-        model.parameters(),
-        lr=train_config["learning_rate"],
-        weight_decay=train_config["weight_decay"])
-elif train_config["optim"] == "Adam":
-    optimizer = optim.Adam(
-        model.parameters(),
-        lr=train_config["learning_rate"],
-        weight_decay=train_config["weight_decay"])
-elif train_config["optim"] == "SGD-M":
-    optimizer = optim.SGD(
-        model.parameters(),
-        lr=train_config["learning_rate"],
-        weight_decay=train_config["weight_decay"],
-        momentum=train_config["momentum"],
-        nesterov=True)
-elif train_config["optim"] == "Adagrad":
-    optimizer = optim.Adagrad(
-        model.parameters(),
-        lr=train_config["learning_rate"],
-        weight_decay=train_config["weight_decay"])
-elif train_config["optim"] == "RMSprop":
-    optimizer = optim.RMSprop(
-        model.parameters(),
-        lr=train_config["learning_rate"],
-        weight_decay=train_config["weight_decay"])
+    x, y, adj = generate_lsn(
+        n=args.num_nodes,
+        d=args.num_features,
+        m=args.num_edges,
+        root=args.path,
+        save_file=True)
+    data = to_data(x, y, adj)
+    data.to(args.device)
+    criterion = nn.MSELoss()
 else:
     raise NotImplementedError(
-        "Optimizer %s is not supported." % train_config["optim"])
+        "Dataset {} is not supported.".format(args.dataset))
 
-# Evaluation metrics.
-metrics = {}
-# TODO: Specify metrics.
-raise NotImplementedError("`metrics` is not specified.")
+num_features = data.x.size(1)
+
+if args.model_type == "mlp":
+    model = MLPReg(num_features=num_features, hidden_size=args.hidden_size)
+elif args.model_type == "gcn":
+    model = GCNReg(
+        num_features=num_features,
+        hidden_size=args.hidden_size,
+        dropout=args.dropout)
+elif args.model_type == "gat":
+    model = GATReg(
+        num_features=num_features,
+        hidden_size=args.hidden_size,
+        dropout=args.dropout)
+else:
+    raise NotImplementedError(
+        "Model {} is not supported.".format(args.model_type))
+model.to(args.device)
+
+if args.opt == "Adam":
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+else:
+    raise NotImplementedError(
+        "Optimizer {} is not supported.".format(args.opt))
+
+patience = args.patience
+best_metric = np.inf
+model.train()
+for epoch in range(args.num_epochs):
+    logits = model(data)
+    loss = criterion(logits[data.train_mask], data.y[data.train_mask])
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    if (epoch + 1) % args.log_interval == 0:
+        model.eval()
+        with torch.no_grad():
+            logits = model(data)
+            loss = criterion(logits[data.train_mask], data.y[data.train_mask])
+            valid_loss = criterion(logits[data.valid_mask],
+                                   data.y[data.valid_mask])
+            test_loss = criterion(logits[data.test_mask],
+                                  data.y[data.test_mask])
+        model.train()
+        this_metric = valid_loss.item()
+        patience -= 1
+        if this_metric < best_metric:
+            patience = args.patience
+            best_metric = this_metric
+        if patience == 0:
+            break
+        if args.verbose > 1:
+            print("Epoch {}: train {:.2f}, valid {:.2f}, test {:.2f}".format(
+                epoch, loss.item(), valid_loss.item(), test_loss.item()))

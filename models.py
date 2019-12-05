@@ -1,30 +1,75 @@
-from __future__ import absolute_import, division, print_function
+from __future__ import division, print_function
 
-from collections import OrderedDict
-from copy import deepcopy
-
-import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch_geometric.nn import GATConv, GCNConv
 
 
-class MLP(nn.Module):
-    """MLP."""
+class GCNReg(nn.Module):
+    """GCN Regressor."""
 
-    def __init__(self, model_config):
-        """Initializes a MLP.
-
-        Arguments:
-          model_config: A OrderedDict of lists. The keys of the dict indicate
-            the names of different parts of the model. Each value of the dict
-            is a list indicating the configs of layers in the corresponding
-            part. Each element of the list is a list [layer_type, arguments],
-            where layer_type is a string and arguments is a dict.
+    def __init__(self,
+                 num_features,
+                 hidden_size,
+                 dropout=0.,
+                 activation="relu"):
+        """Initializes a GCN Regressor.
         """
-        super(MLP, self).__init__()
-        self.model_config = model_config
+        super(GCNReg, self).__init__()
+        self.conv1 = GCNConv(num_features, hidden_size)
+        self.conv2 = GCNConv(hidden_size, 1)
 
-    def forward(self, inputs):
-        outputs = None
-        # TODO: Implement forward.
-        raise NotImplementedError("`forward` not implemented.")
-        return outputs
+        self.dropout = dropout
+        assert activation in ["relu", "elu"]
+        self.activation = getattr(F, activation)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        # x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return x.view(-1)
+
+
+class GATReg(nn.Module):
+    def __init__(self,
+                 num_features,
+                 hidden_size,
+                 dropout=0.,
+                 activation="relu",
+                 num_heads=8):
+        super(GATReg, self).__init__()
+        self.conv1 = GATConv(
+            num_features, hidden_size, heads=num_heads, dropout=dropout)
+        self.conv2 = GATConv(hidden_size * num_heads, 1, dropout=dropout)
+
+        self.dropout = dropout
+        assert activation in ["relu", "elu"]
+        self.activation = getattr(F, activation)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return x.view(-1)
+
+
+class MLPReg(nn.Module):
+    """MLP Regressor."""
+
+    def __init__(self, num_features, hidden_size):
+        """Initializes a MLP Regressor.
+        """
+        super(MLPReg, self).__init__()
+        self.num_features = num_features
+        self.hidden_size = hidden_size
+        self.linear_1 = nn.Linear(num_features, hidden_size)
+        self.linear_2 = nn.Linear(hidden_size, 1)
+        self.activation = F.relu
+
+    def forward(self, data):
+        outputs = self.linear_2(self.activation(self.linear_1(data.x)))
+        return outputs.view(-1)
