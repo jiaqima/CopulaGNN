@@ -43,7 +43,7 @@ def generate_lsn(n=300,
         mean_mode, n, d, m, gamma, tau, seed)
     if not save_file and os.path.exists(os.path.join(path, filename)):
         data, params = pickle.load(open(os.path.join(path, filename), "rb"))
-        return data
+        return data[0], data[1], data[2], filename
 
     rs = np.random.RandomState(seed=seed)
     x = rs.normal(size=(n, d))
