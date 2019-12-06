@@ -34,11 +34,13 @@ def generate_lsn(n=300,
                  gamma=0.1,
                  tau=1.,
                  seed=0,
+                 mean_mode="xw",
                  root='./data',
                  save_file=False):
     path = os.path.join(root, "lsn")
-    filename = "lsn_n{}_d{}_m{}_g{}_t{}_s{}.pkl".format(
-        n, d, m, gamma, tau, seed)
+    assert mean_mode in ["xw", "daxw"]
+    filename = "lsn_{}_n{}_d{}_m{}_g{}_t{}_s{}.pkl".format(
+        mean_mode, n, d, m, gamma, tau, seed)
     if not save_file and os.path.exists(os.path.join(path, filename)):
         data, params = pickle.load(open(os.path.join(path, filename), "rb"))
         return data
@@ -55,8 +57,10 @@ def generate_lsn(n=300,
     adj = (logits >= threshold).astype(float)
     L = np.diag(adj.sum(axis=0)) - adj
 
-    y_mean = np.diag(1. / adj.sum(axis=0)).dot(adj).dot(x).dot(w_y)
-    # y_mean = x.dot(w_y)
+    if mean_mode == "xw":
+        y_mean = x.dot(w_y)
+    else:
+        y_mean = np.diag(1. / adj.sum(axis=0)).dot(adj).dot(x).dot(w_y)
     y_cov = tau * np.linalg.inv(L + gamma * np.eye(n))
     y = rs.multivariate_normal(y_mean, y_cov)
 

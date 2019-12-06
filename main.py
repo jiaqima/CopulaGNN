@@ -21,6 +21,7 @@ parser.add_argument("--seed", type=int, default=10)
 # Dataset configuration
 parser.add_argument("--path", default="./data")
 parser.add_argument("--dataset", default="lsn")
+parser.add_argument("--mean_mode", default="daxw")
 parser.add_argument("--num_features", type=int, default=10)
 parser.add_argument("--num_nodes", type=int, default=300)
 parser.add_argument("--num_edges", type=int, default=5000)
@@ -65,6 +66,7 @@ if args.dataset == "lsn":
         gamma=args.gamma,
         tau=args.tau,
         seed=args.seed,
+        mean_mode=args.mean_mode,
         root=args.path,
         save_file=True)
     data = to_data(x, y, adj)
