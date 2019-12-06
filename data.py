@@ -70,4 +70,4 @@ def generate_lsn(n=300,
         pickle.dump(((x, y, adj), (w_a, w_y)),
                     open(os.path.join(path, filename), "wb"))
 
-    return x, y, adj
+    return x, y, adj, filename

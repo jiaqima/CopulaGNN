@@ -40,7 +40,7 @@ parser.add_argument("--lamda", type=float, default=1e-2)
 
 # Other configuration
 parser.add_argument("--num_epochs", type=int, default=2000)
-parser.add_argument("--patience", type=int, default=10)
+parser.add_argument("--patience", type=int, default=30)
 parser.add_argument("--log_interval", type=int, default=10)
 parser.add_argument("--result_path", default=None)
 parser.add_argument("--save_model", action="store_true")
@@ -59,7 +59,7 @@ if args.seed >= 0:
         torch.cuda.manual_seed(args.seed)
 
 if args.dataset == "lsn":
-    x, y, adj = generate_lsn(
+    x, y, adj, datafile = generate_lsn(
         n=args.num_nodes,
         d=args.num_features,
         m=args.num_edges,
@@ -189,9 +189,15 @@ for epoch in range(args.num_epochs):
                 epoch, train_loss, valid_loss, test_loss))
 
 if args.verbose == 0:
+    result_path = os.path.join(args.path, "results")
+    if not os.path.exists(result_path):
+        os.makedirs(result_path)
     with open(
-            os.path.join(args.path, args.dataset, "results",
-                         "valid__{}__test__{}__seed__{}__model__{}".format(
-                             selected_metrics[0], selected_metrics[1],
-                             args.seed, args.model_type)), "w") as f:
+            os.path.join(
+                result_path,
+                ("valid__{}__test__{}__epoch__{}__model__{}__lamda__{}__"
+                 "datafile__{}").format(
+                     selected_metrics[0], selected_metrics[1],
+                     epoch, args.model_type, args.lamda,
+                     os.path.splitext(datafile)[0])), "w") as f:
         pass
