@@ -3,6 +3,8 @@ from __future__ import division, print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions.multivariate_normal import MultivariateNormal
+from torch.distributions.normal import Normal
 from torch_geometric.nn import GATConv, GCNConv
 
 
@@ -31,6 +33,41 @@ class GCNReg(nn.Module):
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.conv2(x, edge_index)
         return x.view(-1)
+
+
+class CGCNReg(nn.Module):
+    """CGCN Regressor."""
+
+    def __init__(self,
+                 num_features,
+                 hidden_size,
+                 dropout=0.,
+                 activation="relu"):
+        """Initializes a CGCN Regressor.
+        """
+        super(CGCNReg, self).__init__()
+        self.conv1 = GCNConv(num_features, hidden_size)
+        self.conv2 = GCNConv(hidden_size, 1)
+
+        self.dropout = dropout
+        assert activation in ["relu", "elu"]
+        self.activation = getattr(F, activation)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        # x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return x.view(-1)
+
+    def nll_copula(self, pred, label, cov):
+        n_pred = Normal(pred, torch.ones_like(pred))
+        u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
+        n_std = Normal(torch.zeros_like(u), torch.diag(cov))
+        z = n_std.icdf(u)
+        n_copula = MultivariateNormal(torch.zeros_like(z), cov)
+        return -n_copula.log_prob(z)
 
 
 class GATReg(nn.Module):
@@ -79,6 +116,37 @@ class MLPReg(torch.nn.Module):
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.fc2(x)
         return x.view(-1)
+
+
+class CMLPReg(torch.nn.Module):
+    def __init__(self,
+                 num_features,
+                 hidden_size,
+                 dropout=0.5,
+                 activation="relu"):
+        super(CMLPReg, self).__init__()
+        self.fc1 = nn.Linear(num_features, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 1)
+
+        self.dropout = dropout
+        assert activation in ["relu", "elu"]
+        self.activation = getattr(F, activation)
+
+    def forward(self, data):
+        x = data.x
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.fc1(x))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.fc2(x)
+        return x.view(-1)
+
+    def nll_copula(self, pred, label, cov):
+        n_pred = Normal(pred, torch.ones_like(pred))
+        u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
+        n_std = Normal(torch.zeros_like(u), torch.diag(cov))
+        z = n_std.icdf(u)
+        n_copula = MultivariateNormal(torch.zeros_like(z), cov)
+        return -n_copula.log_prob(z)
 
 
 class LSMReg(nn.Module):

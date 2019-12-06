@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from data import generate_lsn, to_data
-from models import GATReg, GCNReg, GenGNN, MLPReg
+from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg
 
 parser = argparse.ArgumentParser(description='Main.')
 parser.add_argument("--verbose", type=int, default=2)
@@ -24,6 +24,8 @@ parser.add_argument("--dataset", default="lsn")
 parser.add_argument("--num_features", type=int, default=10)
 parser.add_argument("--num_nodes", type=int, default=300)
 parser.add_argument("--num_edges", type=int, default=5000)
+parser.add_argument("--gamma", type=float, default=0.05)
+parser.add_argument("--tau", type=float, default=2)
 
 # Model configuration.
 parser.add_argument("--model_type", default="mlp")
@@ -33,7 +35,7 @@ parser.add_argument("--dropout", type=float, default=0.)
 # Training configuration.
 parser.add_argument("--opt", default="Adam")
 parser.add_argument("--lr", type=float, default=0.001)
-parser.add_argument("--lamda", type=float, default=1e-3)
+parser.add_argument("--lamda", type=float, default=1e-2)
 
 # Other configuration
 parser.add_argument("--num_epochs", type=int, default=2000)
@@ -60,8 +62,11 @@ if args.dataset == "lsn":
         n=args.num_nodes,
         d=args.num_features,
         m=args.num_edges,
+        gamma=args.gamma,
+        tau=args.tau,
+        seed=args.seed,
         root=args.path,
-        save_file=False)
+        save_file=True)
     data = to_data(x, y, adj)
     data.to(args.device)
     criterion = nn.MSELoss()
@@ -97,6 +102,10 @@ elif "_" in args.model_type:
     #     post_config["num_heads"] = args.num_heads
     #     post_config["hidden_size"] = int(args.hidden / args.num_heads)
     model = GenGNN(gen_config, post_config)
+elif args.model_type == "cmlp":
+    model = CMLPReg(**model_args)
+elif args.model_type == "cgcn":
+    model = CGCNReg(**model_args)
 else:
     raise NotImplementedError(
         "Model {} is not supported.".format(args.model_type))
@@ -116,6 +125,19 @@ if hasattr(model, "gen"):
         nll_discriminative = criterion(post_y_pred[data.train_mask],
                                        data.y[data.train_mask])
         return args.lamda * nll_generative + nll_discriminative
+elif hasattr(model, "nll_copula"):
+    L = np.diag(adj.sum(axis=0)) - adj
+    cov = np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
+    cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
+    cov = cov[data.train_mask, :]
+    cov = cov[:, data.train_mask]
+
+    def train_loss_fn(model, data):
+        pred = model(data)[data.train_mask]
+        label = data.y[data.train_mask]
+        nll_copula = model.nll_copula(pred, label, cov)
+        nll_q = criterion(pred, label)
+        return args.lamda * nll_copula + nll_q
 else:
 
     def train_loss_fn(model, data):
