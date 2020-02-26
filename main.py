@@ -129,7 +129,7 @@ if hasattr(model, "gen"):
         return args.lamda * nll_generative + nll_discriminative
 elif hasattr(model, "nll_copula"):
     L = np.diag(adj.sum(axis=0)) - adj
-    cov = np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
+    cov = args.tau * np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
     cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
     cov = cov[data.train_mask, :]
     cov = cov[:, data.train_mask]
