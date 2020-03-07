@@ -3,6 +3,7 @@ from __future__ import division, print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from copula import GaussianCopula
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
 from torch_geometric.nn import GATConv, GCNConv
@@ -62,12 +63,10 @@ class CGCNReg(nn.Module):
         return x.view(-1)
 
     def nll_copula(self, pred, label, cov):
-        n_pred = Normal(pred, torch.ones_like(pred))
+        n_copula = GaussianCopula(cov)
+        n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
         u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
-        n_std = Normal(torch.zeros_like(u), torch.diag(cov))
-        z = n_std.icdf(u)
-        n_copula = MultivariateNormal(torch.zeros_like(z), cov)
-        return -n_copula.log_prob(z)
+        return -n_copula.log_prob(u)
 
 
 class GATReg(nn.Module):
@@ -141,12 +140,10 @@ class CMLPReg(torch.nn.Module):
         return x.view(-1)
 
     def nll_copula(self, pred, label, cov):
-        n_pred = Normal(pred, torch.ones_like(pred))
+        n_copula = GaussianCopula(cov)
+        n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
         u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
-        n_std = Normal(torch.zeros_like(u), torch.diag(cov))
-        z = n_std.icdf(u)
-        n_copula = MultivariateNormal(torch.zeros_like(z), cov)
-        return -n_copula.log_prob(z)
+        return -n_copula.log_prob(u)
 
 
 class LSMReg(nn.Module):
