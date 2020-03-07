@@ -22,11 +22,10 @@ class GaussianCopula(Distribution):
 
     def __init__(self, covariance_matrix=None, validate_args=None):
         # convert the covariance matrix to the correlation matrix
-        batch_diag = torch.diagonal(covariance_matrix, dim1=-1, dim2=-2).pow(-0.5)
-        covariance_matrix *= batch_diag.unsqueeze(-1)
-        covariance_matrix *= batch_diag.unsqueeze(-2)
-
-        self.covariance_matrix = covariance_matrix
+        self.covariance_matrix = covariance_matrix.clone()
+        batch_diag = torch.diagonal(self.covariance_matrix, dim1=-1, dim2=-2).pow(-0.5)
+        self.covariance_matrix *= batch_diag.unsqueeze(-1)
+        self.covariance_matrix *= batch_diag.unsqueeze(-2)
 
         batch_shape, event_shape = (
             covariance_matrix.shape[:-2],
@@ -37,7 +36,7 @@ class GaussianCopula(Distribution):
 
         self.multivariate_normal = MultivariateNormal(
             loc=torch.zeros(event_shape),
-            covariance_matrix=covariance_matrix,
+            covariance_matrix=self.covariance_matrix,
             validate_args=validate_args,
         )
 
@@ -64,16 +63,19 @@ if __name__ == "__main__":
     from torch.distributions.normal import Normal
 
     covariance_matrix = torch.tensor([[1.5, 0.5], [0.5, 2.0]])
-    value_u = torch.tensor([[0.1, 0.2], [0.3, 0.4]])
-    gaussian_copula = GaussianCopula(covariance_matrix=covariance_matrix)
-    actual = gaussian_copula.log_prob(value_u)
-
-    normal = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
     multivariate_normal = MultivariateNormal(
         loc=torch.zeros(2), covariance_matrix=covariance_matrix
     )
-    value_x = normal.icdf(value_u)
-    expected = multivariate_normal.log_prob(value_x) - normal.log_prob(value_x).sum(-1)
+    normal = Normal(loc=torch.zeros(2), scale=torch.diag(covariance_matrix).pow(0.5))
+    gaussian_copula = GaussianCopula(covariance_matrix=covariance_matrix)
 
-    print(f"expected: {expected}, actual: {actual}.")
-    assert torch.norm(actual - expected) < 1e-5
+    for _ in range(10):
+        value_x = torch.randn(5, 2)
+        value_u = normal.cdf(value_x)
+        actual = gaussian_copula.log_prob(value_u)
+        expected = multivariate_normal.log_prob(value_x) - normal.log_prob(value_x).sum(
+            -1
+        )
+
+        print(f"expected: {expected}, actual: {actual}.")
+        assert torch.norm(actual - expected) < 1e-5
