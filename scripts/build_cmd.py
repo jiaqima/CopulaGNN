@@ -15,15 +15,15 @@ def build_cmd(cmd):
         for gamma in [0.1]:
             build_cmd(cmd + " --gamma {}".format(gamma))
     elif "model_type" not in cmd:
-        for model_type in ["gcn", "mlp"]:
+        for model_type in ["gcn", "mlp", "mngcn", "mnmlp"]:
             build_cmd(cmd + " --model_type {}".format(model_type))
-        for model_type in ["cgcn", "cmlp"]:
+        for model_type in ["cgcn", "cmlp", "newcgcn", "newcmlp", "noisycgcn", "noisycmlp"]:
             for lamda in [0.1]:
                 build_cmd(cmd + " --model_type {} --lamda {}".format(
                     model_type, lamda))
     elif "seed" not in cmd:
         for seed in range(20):
-            build_cmd(cmd + " --seed {}".format(seed))
+            build_cmd(cmd + " --seed {} --device cuda:{}".format(seed, seed % 2))
 
 
 build_cmd("python main.py --verbose 0 --patience 30 --num_epochs 5000")

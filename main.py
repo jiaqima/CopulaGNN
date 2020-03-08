@@ -10,7 +10,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from data import generate_lsn, to_data
-from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg
+from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg, NewCMLPReg, NewCGCNReg
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 parser = argparse.ArgumentParser(description='Main.')
 parser.add_argument("--verbose", type=int, default=2)
@@ -83,9 +84,9 @@ model_args = {
     "activation": "relu"
 }
 
-if args.model_type == "mlp":
+if args.model_type in ["mlp", "mnmlp"]:
     model = MLPReg(**model_args)
-elif args.model_type == "gcn":
+elif args.model_type in ["gcn", "mngcn"]:
     model = GCNReg(**model_args)
 elif args.model_type == "gat":
     model = GATReg(**model_args)
@@ -104,10 +105,14 @@ elif "_" in args.model_type:
     #     post_config["num_heads"] = args.num_heads
     #     post_config["hidden_size"] = int(args.hidden / args.num_heads)
     model = GenGNN(gen_config, post_config)
-elif args.model_type == "cmlp":
+elif args.model_type in ["cmlp", "noisycmlp"]:
     model = CMLPReg(**model_args)
-elif args.model_type == "cgcn":
+elif args.model_type in ["cgcn", "noisycgcn"]:
     model = CGCNReg(**model_args)
+elif args.model_type == "newcmlp":
+    model = NewCMLPReg(**model_args)
+elif args.model_type == "newcgcn":
+    model = NewCGCNReg(**model_args)
 else:
     raise NotImplementedError(
         "Model {} is not supported.".format(args.model_type))
@@ -128,7 +133,16 @@ if hasattr(model, "gen"):
                                        data.y[data.train_mask])
         return args.lamda * nll_generative + nll_discriminative
 elif hasattr(model, "nll_copula"):
-    L = np.diag(adj.sum(axis=0)) - adj
+    if args.model_type.startswith("noisy"):
+        rs = np.random.RandomState(0)
+        temp = adj + rs.normal(0, 0.2, size=adj.shape)
+        temp[temp > 0.5] = 1
+        temp[temp <= 0.5] = 0
+        temp += temp.T
+        temp[temp > 0] = 1
+        L = np.diag(temp.sum(axis=0)) - temp
+    else:
+        L = np.diag(adj.sum(axis=0)) - adj
     cov = args.tau * np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
     cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
     cov = cov[data.train_mask, :]
@@ -140,6 +154,19 @@ elif hasattr(model, "nll_copula"):
         nll_copula = model.nll_copula(pred, label, cov)
         nll_q = criterion(pred, label)
         return args.lamda * nll_copula + nll_q
+elif args.model_type.startswith("mn"):
+    L = np.diag(adj.sum(axis=0)) - adj
+    cov = args.tau * np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
+    cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
+    cov = cov[data.train_mask, :]
+    cov = cov[:, data.train_mask]
+
+    def train_loss_fn(model, data):
+        pred = model(data)[data.train_mask]
+        label = data.y[data.train_mask]
+        mn = MultivariateNormal(pred, cov)
+        return -mn.log_prob(label)
+
 else:
 
     def train_loss_fn(model, data):
@@ -187,6 +214,14 @@ for epoch in range(args.num_epochs):
         if args.verbose > 1:
             print("Epoch {}: train {:.2f}, valid {:.2f}, test {:.2f}".format(
                 epoch, train_loss, valid_loss, test_loss))
+
+
+# rs = np.random.RandomState(0)
+# temp = adj + rs.normal(0, 0.2, size=adj.shape)
+# temp[temp > 0.5] = 1
+# temp[temp <= 0.5] = 0
+# L = np.diag(temp.sum(axis=0)) - temp
+# print(np.sum(np.abs(temp - adj)))
 
 if args.verbose == 0:
     result_path = os.path.join(args.path, "results")
