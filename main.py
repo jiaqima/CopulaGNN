@@ -12,6 +12,7 @@ import torch.optim as optim
 from data import generate_lsn, to_data
 from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg, NewCMLPReg, NewCGCNReg
 from torch.distributions.multivariate_normal import MultivariateNormal
+from torch.distributions.normal import Normal
 
 parser = argparse.ArgumentParser(description='Main.')
 parser.add_argument("--verbose", type=int, default=2)
@@ -148,12 +149,20 @@ elif hasattr(model, "nll_copula"):
     cov = cov[data.train_mask, :]
     cov = cov[:, data.train_mask]
 
-    def train_loss_fn(model, data):
+    # def train_loss_fn(model, data):  # old copula loss
+    #     pred = model(data)[data.train_mask]
+    #     label = data.y[data.train_mask]
+    #     nll_copula = model.nll_copula(pred, label, cov)
+    #     nll_q = criterion(pred, label)
+    #     return args.lamda * nll_copula + nll_q
+
+    def train_loss_fn(model, data):  # new copula loss (joint NLL)
         pred = model(data)[data.train_mask]
         label = data.y[data.train_mask]
         nll_copula = model.nll_copula(pred, label, cov)
-        nll_q = criterion(pred, label)
-        return args.lamda * nll_copula + nll_q
+        normal = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
+        nll_q = -normal.log_prob(label)
+        return nll_copula + nll_q.sum()
 elif args.model_type.startswith("mn"):
     L = np.diag(adj.sum(axis=0)) - adj
     cov = args.tau * np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
@@ -173,8 +182,22 @@ else:
         return criterion(model(data)[data.train_mask], data.y[data.train_mask])
 
 
-def test_loss_fn(logits, data, mask):
-    return criterion(logits[mask], data.y[mask]).item()
+# def test_loss_fn(logits, data, mask):  # MSE test metric
+#     return criterion(logits[mask], data.y[mask]).item()
+
+
+eval_L = np.diag(adj.sum(axis=0)) - adj
+eval_cov = args.tau * np.linalg.inv(eval_L + args.gamma * np.eye(adj.shape[0]))
+eval_cov = torch.tensor(eval_cov, dtype=torch.float32).to(args.device)
+
+
+def test_loss_fn(logits, data, mask):  # joint NLL test metric
+    cov = eval_cov[mask, :]
+    cov = cov[:, mask]
+    pred = logits[mask]
+    label = data.y[mask]
+    mn = MultivariateNormal(pred, cov)
+    return -mn.log_prob(label)
 
 
 def train():
