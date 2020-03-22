@@ -260,9 +260,9 @@ if args.verbose == 0:
     with open(
             os.path.join(
                 result_path,
-                ("valid__{}__test__{}__epoch__{}__model__{}__lamda__{}__"
+                ("valid__{}__test__{}__epoch__{}__model__{}__lamda__{}__m_gamma__{}__m_tau__{}__"
                  "datafile__{}").format(
                      selected_metrics[0], selected_metrics[1],
-                     epoch, args.model_type, args.lamda,
+                     epoch, args.model_type, args.lamda, args.m_gamma, args.m_tau,
                      os.path.splitext(datafile)[0])), "w") as f:
         pass
