@@ -16,16 +16,22 @@ def build_cmd(cmd):
             build_cmd(cmd + " --model_type {}".format(model_type))
     elif "tau" not in cmd:
         for tau in [1.]:
-            build_cmd(cmd + " --tau {}".format(tau))
             if "cgcn" in cmd or "cmlp" in cmd:
                 for m_tau in [tau / 10, tau / 2, tau, tau * 2, tau * 10]:
-                    build_cmd(cmd + " --m_tau {}".format(m_tau))
+                    build_cmd(cmd + " --tau {} --m_tau {}".format(tau, m_tau))
+            else:
+                build_cmd(cmd + " --tau {}".format(tau))
     elif "gamma" not in cmd:
-        for gamma in [0.1]:
-            build_cmd(cmd + " --gamma {}".format(gamma))
+        for gamma in [0.5]:
             if "cgcn" in cmd or "cmlp" in cmd:
-                for m_gamma in [gamma / 10, gamma / 2, gamma, gamma * 2, gamma * 10]:
-                    build_cmd(cmd + " --m_gamma {}".format(m_gamma))
+                for m_gamma in [
+                        gamma / 5, gamma / 2, gamma, gamma * 2, gamma * 5
+                ]:
+                    build_cmd(
+                        cmd +
+                        " --gamma {} --m_gamma {}".format(gamma, m_gamma))
+            else:
+                build_cmd(cmd + " --gamma {}".format(gamma))
     elif "seed" not in cmd:
         for seed in range(100):
             build_cmd(cmd +
