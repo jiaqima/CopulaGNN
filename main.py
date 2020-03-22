@@ -34,6 +34,8 @@ parser.add_argument("--tau", type=float, default=2)
 parser.add_argument("--model_type", default="mlp")
 parser.add_argument("--hidden_size", type=int, default=8)
 parser.add_argument("--dropout", type=float, default=0.)
+parser.add_argument("--m_gamma", type=float, default=-1)
+parser.add_argument("--m_tau", type=float, default=-1)
 
 # Training configuration.
 parser.add_argument("--opt", default="Adam")
@@ -52,6 +54,11 @@ parser.add_argument("--save_log", action="store_true")
 parser.add_argument("--log_path", default=None)
 
 args = parser.parse_args()
+
+if args.m_gamma < 0:
+    args.m_gamma = args.gamma
+if args.m_tau < 0:
+    args.m_tau = args.m_tau
 
 # Set random seed
 if args.seed >= 0:
@@ -145,7 +152,7 @@ elif hasattr(model, "nll_copula"):
         L = np.diag(temp.sum(axis=0)) - temp
     else:
         L = np.diag(adj.sum(axis=0)) - adj
-    cov = args.tau * np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
+    cov = args.m_tau * np.linalg.inv(L + args.m_gamma * np.eye(adj.shape[0]))
     cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
     cov = cov[data.train_mask, :]
     cov = cov[:, data.train_mask]
@@ -166,7 +173,7 @@ elif hasattr(model, "nll_copula"):
         return nll_copula + nll_q.sum()
 elif args.model_type.startswith("mn"):
     L = np.diag(adj.sum(axis=0)) - adj
-    cov = args.tau * np.linalg.inv(L + args.gamma * np.eye(adj.shape[0]))
+    cov = args.m_tau * np.linalg.inv(L + args.m_gamma * np.eye(adj.shape[0]))
     cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
     cov = cov[data.train_mask, :]
     cov = cov[:, data.train_mask]
@@ -188,7 +195,7 @@ if args.test_metric == "mse":
         return criterion(logits[mask], data.y[mask]).item()
 elif args.test_metric == "nll":
     eval_L = np.diag(adj.sum(axis=0)) - adj
-    eval_cov = args.tau * np.linalg.inv(eval_L + args.gamma * np.eye(adj.shape[0]))
+    eval_cov = args.m_tau * np.linalg.inv(eval_L + args.m_gamma * np.eye(adj.shape[0]))
     eval_cov = torch.tensor(eval_cov, dtype=torch.float32).to(args.device)
 
     def test_loss_fn(logits, data, mask):  # joint NLL test metric
