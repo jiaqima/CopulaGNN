@@ -41,6 +41,7 @@ parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--lamda", type=float, default=1e-2)
 
 # Other configuration
+parser.add_argument("--test_metric", default="mse")
 parser.add_argument("--num_epochs", type=int, default=2000)
 parser.add_argument("--patience", type=int, default=30)
 parser.add_argument("--log_interval", type=int, default=10)
@@ -110,9 +111,9 @@ elif args.model_type in ["cmlp", "noisycmlp"]:
     model = CMLPReg(**model_args)
 elif args.model_type in ["cgcn", "noisycgcn"]:
     model = CGCNReg(**model_args)
-elif args.model_type == "newcmlp":
+elif args.model_type in ["newcmlp", "noisynewcmlp"]:
     model = NewCMLPReg(**model_args)
-elif args.model_type == "newcgcn":
+elif args.model_type in ["newcgcn", "noisynewcgcn"]:
     model = NewCGCNReg(**model_args)
 else:
     raise NotImplementedError(
@@ -182,22 +183,21 @@ else:
         return criterion(model(data)[data.train_mask], data.y[data.train_mask])
 
 
-# def test_loss_fn(logits, data, mask):  # MSE test metric
-#     return criterion(logits[mask], data.y[mask]).item()
+if args.test_metric == "mse":
+    def test_loss_fn(logits, data, mask):  # MSE test metric
+        return criterion(logits[mask], data.y[mask]).item()
+elif args.test_metric == "nll":
+    eval_L = np.diag(adj.sum(axis=0)) - adj
+    eval_cov = args.tau * np.linalg.inv(eval_L + args.gamma * np.eye(adj.shape[0]))
+    eval_cov = torch.tensor(eval_cov, dtype=torch.float32).to(args.device)
 
-
-eval_L = np.diag(adj.sum(axis=0)) - adj
-eval_cov = args.tau * np.linalg.inv(eval_L + args.gamma * np.eye(adj.shape[0]))
-eval_cov = torch.tensor(eval_cov, dtype=torch.float32).to(args.device)
-
-
-def test_loss_fn(logits, data, mask):  # joint NLL test metric
-    cov = eval_cov[mask, :]
-    cov = cov[:, mask]
-    pred = logits[mask]
-    label = data.y[mask]
-    mn = MultivariateNormal(pred, cov)
-    return -mn.log_prob(label)
+    def test_loss_fn(logits, data, mask):  # joint NLL test metric
+        cov = eval_cov[mask, :]
+        cov = cov[:, mask]
+        pred = logits[mask]
+        label = data.y[mask]
+        mn = MultivariateNormal(pred, cov)
+        return -mn.log_prob(label)
 
 
 def train():
