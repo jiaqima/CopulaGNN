@@ -69,22 +69,21 @@ if args.seed >= 0:
         torch.cuda.manual_seed(args.seed)
 
 if args.dataset == "lsn":
-    x, y, adj, datafile = generate_lsn(
-        n=args.num_nodes,
-        d=args.num_features,
-        m=args.num_edges,
-        gamma=args.gamma,
-        tau=args.tau,
-        seed=args.seed,
-        mean_mode=args.mean_mode,
-        root=args.path,
-        save_file=True)
+    x, y, adj, datafile = generate_lsn(n=args.num_nodes,
+                                       d=args.num_features,
+                                       m=args.num_edges,
+                                       gamma=args.gamma,
+                                       tau=args.tau,
+                                       seed=args.seed,
+                                       mean_mode=args.mean_mode,
+                                       root=args.path,
+                                       save_file=True)
     data = to_data(x, y, adj)
     data.to(args.device)
     criterion = nn.MSELoss()
 else:
-    raise NotImplementedError(
-        "Dataset {} is not supported.".format(args.dataset))
+    raise NotImplementedError("Dataset {} is not supported.".format(
+        args.dataset))
 
 model_args = {
     "num_features": data.x.size(1),
@@ -123,15 +122,15 @@ elif args.model_type in ["newcmlp", "noisynewcmlp"]:
 elif args.model_type in ["newcgcn", "noisynewcgcn"]:
     model = NewCGCNReg(**model_args)
 else:
-    raise NotImplementedError(
-        "Model {} is not supported.".format(args.model_type))
+    raise NotImplementedError("Model {} is not supported.".format(
+        args.model_type))
 model.to(args.device)
 
 if args.opt == "Adam":
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 else:
-    raise NotImplementedError(
-        "Optimizer {} is not supported.".format(args.opt))
+    raise NotImplementedError("Optimizer {} is not supported.".format(
+        args.opt))
 
 if hasattr(model, "gen"):
 
@@ -164,6 +163,7 @@ elif hasattr(model, "nll_copula"):
     #     nll_q = criterion(pred, label)
     #     return args.lamda * nll_copula + nll_q
 
+
     def train_loss_fn(model, data):  # new copula loss (joint NLL)
         pred = model(data)[data.train_mask]
         label = data.y[data.train_mask]
@@ -191,11 +191,13 @@ else:
 
 
 if args.test_metric == "mse":
+
     def test_loss_fn(logits, data, mask):  # MSE test metric
         return criterion(logits[mask], data.y[mask]).item()
 elif args.test_metric == "nll":
     eval_L = np.diag(adj.sum(axis=0)) - adj
-    eval_cov = args.m_tau * np.linalg.inv(eval_L + args.m_gamma * np.eye(adj.shape[0]))
+    eval_cov = args.m_tau * np.linalg.inv(eval_L +
+                                          args.m_gamma * np.eye(adj.shape[0]))
     eval_cov = torch.tensor(eval_cov, dtype=torch.float32).to(args.device)
 
     def test_loss_fn(logits, data, mask):  # joint NLL test metric
@@ -245,7 +247,6 @@ for epoch in range(args.num_epochs):
             print("Epoch {}: train {:.2f}, valid {:.2f}, test {:.2f}".format(
                 epoch, train_loss, valid_loss, test_loss))
 
-
 # rs = np.random.RandomState(0)
 # temp = adj + rs.normal(0, 0.2, size=adj.shape)
 # temp[temp > 0.5] = 1
@@ -260,9 +261,12 @@ if args.verbose == 0:
     with open(
             os.path.join(
                 result_path,
-                ("valid__{}__test__{}__epoch__{}__model__{}__lamda__{}__m_gamma__{}__m_tau__{}__"
-                 "datafile__{}").format(
-                     selected_metrics[0], selected_metrics[1],
-                     epoch, args.model_type, args.lamda, args.m_gamma, args.m_tau,
-                     os.path.splitext(datafile)[0])), "w") as f:
+                ("valid__{}__test__{}__epoch__{}__model__{}__lamda__{}__"
+                 "m_gamma__{}__m_tau__{}__"
+                 "datafile__{}").format(selected_metrics[0],
+                                        selected_metrics[1], epoch,
+                                        args.model_type, args.lamda,
+                                        args.m_gamma, args.m_tau,
+                                        os.path.splitext(datafile)[0])),
+            "w") as f:
         pass
