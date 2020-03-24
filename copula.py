@@ -81,6 +81,10 @@ class GaussianCopula(Distribution):
                 If None, use the last m dimensions, where m is the length of cond_val.
             sample_idx (torch.LongTensor): indices to sample from. If None, sample 
                 from all remaining dimensions.
+
+        Returns:
+            Generates a sample_shape shaped sample or sample_shape shaped batch of 
+                samples if the distribution parameters are batched.
         """
         m, n = *cond_val.shape, *self.event_shape
 
