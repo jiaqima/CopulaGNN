@@ -9,12 +9,22 @@ from torch.distributions.multivariate_normal import (
 )
 
 
+def _standard_normal_quantile(u):
+    # Ref: https://en.wikipedia.org/wiki/Normal_distribution
+    return math.sqrt(2) * torch.erfinv(2 * u - 1)
+
+
+def _standard_normal_cdf(x):
+    # Ref: https://en.wikipedia.org/wiki/Normal_distribution
+    return 0.5 * (1 + torch.erf(x / math.sqrt(2)))
+
+
 class GaussianCopula(Distribution):
     r"""
     A Gaussian copula. 
 
     Args:
-        covariance_matrix (Tensor): positive-definite covariance matrix
+        covariance_matrix (torch.Tensor): positive-definite covariance matrix
     """
     arg_constraints = {"covariance_matrix": constraints.positive_definite}
     support = constraints.interval(0.0, 1.0)
@@ -43,8 +53,7 @@ class GaussianCopula(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        # Ref: https://en.wikipedia.org/wiki/Normal_distribution
-        value_x = math.sqrt(2) * torch.erfinv(2 * value - 1)
+        value_x = _standard_normal_quantile(value)
         half_log_det = (
             self.multivariate_normal._unbroadcasted_scale_tril.diagonal(
                 dim1=-2, dim2=-1
@@ -58,8 +67,76 @@ class GaussianCopula(Distribution):
         M -= value_x.pow(2).sum(-1)
         return -0.5 * M - half_log_det
 
+    def conditional_sample(
+        self, cond_val, sample_shape=torch.Size([]), cond_idx=None, sample_idx=None
+    ):
+        """
+        Draw samples conditioning on cond_val.
+
+        Args:
+            cond_val (torch.Tensor): conditional values. Should be a 1D tensor.
+            sample_shape (torch.Size): same as in 
+                `Distribution.sample(sample_shape=torch.Size([]))`.
+            cond_idx (torch.LongTensor): indices that correspond to cond_val.
+                If None, use the last m dimensions, where m is the length of cond_val.
+            sample_idx (torch.LongTensor): indices to sample from. If None, sample 
+                from all remaining dimensions.
+        """
+        m, n = *cond_val.shape, *self.event_shape
+
+        if not cond_idx:
+            cond_idx = torch.arange(n - m, n)
+        if not sample_idx:
+            sample_idx = torch.tensor(
+                [i for i in range(n) if i not in set(cond_idx.tolist())]
+            )
+
+        assert (
+            len(cond_idx) == m
+            and len(sample_idx) + len(cond_idx) <= n
+            and not set(cond_idx.tolist()) & set(sample_idx.tolist())
+        )
+
+        cov_00 = self.covariance_matrix.index_select(
+            dim=0, index=sample_idx
+        ).index_select(dim=1, index=sample_idx)
+        cov_01 = self.covariance_matrix.index_select(
+            dim=0, index=sample_idx
+        ).index_select(dim=1, index=cond_idx)
+        cov_10 = self.covariance_matrix.index_select(
+            dim=0, index=cond_idx
+        ).index_select(dim=1, index=sample_idx)
+        cov_11 = self.covariance_matrix.index_select(
+            dim=0, index=cond_idx
+        ).index_select(dim=1, index=cond_idx)
+
+        cond_val_nscale = _standard_normal_quantile(cond_val)  # Phi^{-1}(u_cond)
+        reg_coeff, _ = torch.solve(cov_10, cov_11)  # Sigma_{11}^{-1} Sigma_{10}
+        cond_mu = torch.mv(reg_coeff.t(), cond_val_nscale)
+        cond_sigma = cov_00 - torch.mm(cov_01, reg_coeff)
+        cond_normal = MultivariateNormal(loc=cond_mu, covariance_matrix=cond_sigma)
+
+        samples_nscale = cond_normal.sample(sample_shape)
+        samples_uscale = _standard_normal_cdf(samples_nscale)
+
+        return samples_uscale
+
 
 if __name__ == "__main__":
+    covariance_matrix = torch.tensor(
+        [
+            [1.0, 0.5, 0.5, 0.5],
+            [0.5, 1.0, 0.5, 0.5],
+            [0.5, 0.5, 1.0, 0.5],
+            [0.5, 0.5, 0.5, 1.0],
+        ]
+    )
+    gaussian_copula = GaussianCopula(covariance_matrix=covariance_matrix)
+    cond_samples = gaussian_copula.conditional_sample(
+        torch.Tensor([0.1]), sample_shape=[5]
+    )
+    print(cond_samples)
+
     from torch.distributions.normal import Normal
 
     covariance_matrix = torch.tensor([[1.5, 0.5], [0.5, 2.0]])
