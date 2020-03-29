@@ -10,9 +10,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from data import generate_lsn, to_data
-from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg, NewCMLPReg, NewCGCNReg
+from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg, NewCMLPReg, NewCGCNReg, SpectralCMLPReg, SpectralCGCNReg
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
+torch.autograd.set_detect_anomaly(True)
 
 parser = argparse.ArgumentParser(description='Main.')
 parser.add_argument("--verbose", type=int, default=2)
@@ -85,12 +86,25 @@ else:
     raise NotImplementedError("Dataset {} is not supported.".format(
         args.dataset))
 
+m_adj = adj
+if args.model_type.startswith("noisy"):
+    rs = np.random.RandomState(0)
+    temp = adj + rs.normal(0, 0.2, size=adj.shape)
+    temp[temp > 0.5] = 1
+    temp[temp <= 0.5] = 0
+    temp += temp.T
+    temp[temp > 0] = 1
+    m_adj = temp
+
 model_args = {
     "num_features": data.x.size(1),
     "hidden_size": args.hidden_size,
     "dropout": args.dropout,
     "activation": "relu"
 }
+
+if "spectral" in args.model_type:
+    model_args["adj"] = m_adj
 
 if args.model_type in ["mlp", "mnmlp"]:
     model = MLPReg(**model_args)
@@ -121,6 +135,10 @@ elif args.model_type in ["newcmlp", "noisynewcmlp", "condnewcmlp"]:
     model = NewCMLPReg(**model_args)
 elif args.model_type in ["newcgcn", "noisynewcgcn", "condnewcgcn"]:
     model = NewCGCNReg(**model_args)
+elif args.model_type in ["spectralcmlp"]:
+    model = SpectralCMLPReg(**model_args)
+elif args.model_type in ["spectralcgcn"]:
+    model = SpectralCGCNReg(**model_args)
 else:
     raise NotImplementedError("Model {} is not supported.".format(
         args.model_type))
@@ -140,16 +158,8 @@ if hasattr(model, "gen"):
         nll_discriminative = criterion(post_y_pred[data.train_mask],
                                        data.y[data.train_mask])
         return args.lamda * nll_generative + nll_discriminative
+
 elif hasattr(model, "nll_copula"):
-    m_adj = adj
-    if args.model_type.startswith("noisy"):
-        rs = np.random.RandomState(0)
-        temp = adj + rs.normal(0, 0.2, size=adj.shape)
-        temp[temp > 0.5] = 1
-        temp[temp <= 0.5] = 0
-        temp += temp.T
-        temp[temp > 0] = 1
-        m_adj = temp
     L = np.diag(m_adj.sum(axis=0)) - m_adj
     cov = args.m_tau * np.linalg.inv(L + args.m_gamma * np.eye(adj.shape[0]))
     cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
@@ -163,7 +173,6 @@ elif hasattr(model, "nll_copula"):
     #     nll_q = criterion(pred, label)
     #     return args.lamda * nll_copula + nll_q
 
-
     def train_loss_fn(model, data):  # new copula loss (joint NLL)
         pred = model(data)[data.train_mask]
         label = data.y[data.train_mask]
@@ -171,6 +180,15 @@ elif hasattr(model, "nll_copula"):
         normal = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
         nll_q = -normal.log_prob(label)
         return nll_copula + nll_q.sum()
+
+elif hasattr(model, "nll_spectral_copula"):
+
+    def train_loss_fn(model, data):  # new copula loss (joint NLL)
+        pred = model(data)[data.train_mask]
+        label = data.y[data.train_mask]
+        nll = model.nll_spectral_copula(pred, label, data.train_mask)
+        return nll
+
 elif args.model_type.startswith("mn"):
     L = np.diag(adj.sum(axis=0)) - adj
     cov = args.m_tau * np.linalg.inv(L + args.m_gamma * np.eye(adj.shape[0]))

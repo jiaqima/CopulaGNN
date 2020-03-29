@@ -32,10 +32,14 @@ class GaussianCopula(Distribution):
 
     def __init__(self, covariance_matrix=None, validate_args=None):
         # convert the covariance matrix to the correlation matrix
-        self.covariance_matrix = covariance_matrix.clone()
-        batch_diag = torch.diagonal(self.covariance_matrix, dim1=-1, dim2=-2).pow(-0.5)
-        self.covariance_matrix *= batch_diag.unsqueeze(-1)
-        self.covariance_matrix *= batch_diag.unsqueeze(-2)
+        # self.covariance_matrix = covariance_matrix.clone()
+        # batch_diag = torch.diagonal(self.covariance_matrix, dim1=-1, dim2=-2).pow(-0.5)
+        # self.covariance_matrix *= batch_diag.unsqueeze(-1)
+        # self.covariance_matrix *= batch_diag.unsqueeze(-2)
+        diag = torch.diag(covariance_matrix).pow(-0.5)
+        self.covariance_matrix = (
+            torch.diag(diag)).matmul(covariance_matrix).matmul(
+            torch.diag(diag))
 
         batch_shape, event_shape = (
             covariance_matrix.shape[:-2],
