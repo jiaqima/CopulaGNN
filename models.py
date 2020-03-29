@@ -338,11 +338,11 @@ class LSMReg(nn.Module):
             nll_p_g_xy += -torch.mean(F.logsigmoid(-e_pred_neg))
 
         # nll of p_y_x
-        nll_p_y_x = F.mse_loss(y_mu[data.train_mask], data.y[data.train_mask])
-        nll_p_y_x += F.mse_loss(post_y_mu[unlabel_mask], y_mu[unlabel_mask])
+        nll_p_y_x = 0.5 * F.mse_loss(y_mu[data.train_mask], data.y[data.train_mask])
+        nll_p_y_x += 0.5 * F.mse_loss(post_y_mu[unlabel_mask], y_mu[unlabel_mask])
 
         # nll of q_y_xg
-        nll_q_y_xg = -0.5 * torch.sum(post_y_mu[unlabel_mask].pow(2))
+        nll_q_y_xg = -0.5 * torch.mean(post_y_mu[unlabel_mask].pow(2))
 
         return nll_p_g_xy + nll_p_y_x + nll_q_y_xg
 
