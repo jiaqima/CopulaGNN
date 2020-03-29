@@ -4,6 +4,8 @@ from collections import OrderedDict
 
 import pandas as pd
 
+SEP = "__"
+
 path = "data"
 if len(sys.argv) > 1:
     path = sys.argv[1]
@@ -25,7 +27,7 @@ for f in os.listdir("{}/results".format(path)):
 #     res[setting_valid] = res.get(setting_valid, [])
     if model == "lsm_gcn":
         model = "lsmgcn"
-    setting_test = (tmp[1], tmp[5], tmp[6], "_".join([model, lamda]), "test")
+    setting_test = (tmp[1], tmp[5], tmp[6], SEP.join([model, lamda]), "test")
     res[setting_test] = res.get(setting_test, [])
     for i, t in enumerate(temp):
 #         if t == "valid":
@@ -37,7 +39,7 @@ results = OrderedDict()
 for key in sorted(res):
     if key[0] != mode:
         continue
-    new_key = (key[1][1:], key[2][1:], key[3].split("_")[0])
+    new_key = (key[1][1:], key[2][1:], key[3].split(SEP)[0])
     results[new_key] = res[key]
 df = pd.DataFrame(results)
 
