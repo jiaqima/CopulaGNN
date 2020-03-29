@@ -88,9 +88,9 @@ class GaussianCopula(Distribution):
         """
         m, n = *cond_val.shape, *self.event_shape
 
-        if not cond_idx:
+        if cond_idx is None:
             cond_idx = torch.arange(n - m, n)
-        if not sample_idx:
+        if sample_idx is None:
             sample_idx = torch.tensor(
                 [i for i in range(n) if i not in set(cond_idx.tolist())]
             )

@@ -117,9 +117,9 @@ elif args.model_type in ["cmlp", "noisycmlp"]:
     model = CMLPReg(**model_args)
 elif args.model_type in ["cgcn", "noisycgcn"]:
     model = CGCNReg(**model_args)
-elif args.model_type in ["newcmlp", "noisynewcmlp"]:
+elif args.model_type in ["newcmlp", "noisynewcmlp", "condnewcmlp"]:
     model = NewCMLPReg(**model_args)
-elif args.model_type in ["newcgcn", "noisynewcgcn"]:
+elif args.model_type in ["newcgcn", "noisynewcgcn", "condnewcgcn"]:
     model = NewCGCNReg(**model_args)
 else:
     raise NotImplementedError("Model {} is not supported.".format(
@@ -191,9 +191,21 @@ else:
 
 
 if args.test_metric == "mse":
+    if args.model_type.startswith("cond"):
+        assert hasattr(model, "cond_predict")
 
-    def test_loss_fn(logits, data, mask):  # MSE test metric
-        return criterion(logits[mask], data.y[mask]).item()
+        eval_L = np.diag(adj.sum(axis=0)) - adj
+        eval_cov = args.m_tau * np.linalg.inv(
+            eval_L + args.m_gamma * np.eye(adj.shape[0]))
+        eval_cov = torch.tensor(eval_cov, dtype=torch.float32).to(args.device)
+
+        def test_loss_fn(logits, data, mask):  # joint NLL test metric
+            eval_logits = model.cond_predict(
+                data, eval_cov, data.train_mask, mask, num_samples=1000)
+            return criterion(eval_logits, data.y[mask]).item()
+    else:
+        def test_loss_fn(logits, data, mask):  # MSE test metric
+            return criterion(logits[mask], data.y[mask]).item()
 elif args.test_metric == "nll":
     eval_L = np.diag(adj.sum(axis=0)) - adj
     eval_cov = args.m_tau * np.linalg.inv(eval_L +

@@ -1,5 +1,7 @@
 from __future__ import division, print_function
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +9,14 @@ from copula import GaussianCopula
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
 from torch_geometric.nn import GATConv, GCNConv
+
+
+def _normal_cdf(loc, scale, value):
+    return 0.5 * (1 + torch.erf((value - loc) * scale.reciprocal() / math.sqrt(2)))
+
+
+def _batch_normal_icdf(loc, scale, value):
+    return loc[None, :] + scale[None, :] * torch.erfinv(2 * value - 1) * math.sqrt(2)
 
 
 class GCNReg(nn.Module):
@@ -108,6 +118,22 @@ class NewCGCNReg(nn.Module):
         n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
         u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
         return -n_copula.log_prob(u)
+
+    def cond_predict(self, data, cov, cond_mask, eval_mask, num_samples=100):
+        if sum(cond_mask.logical_xor(eval_mask)) == 0:
+            return data.y[cond_mask]
+        n_copula = GaussianCopula(cov)
+        loc = self.forward(data)
+        scale = torch.diag(cov).pow(0.5)
+
+        cond_u = _normal_cdf(loc[cond_mask], scale[cond_mask], data.y[cond_mask])
+        cond_u = torch.clamp(cond_u, 0.01, 0.99)
+        cond_idx = torch.where(cond_mask)[0]
+        sample_idx = torch.where(eval_mask)[0]
+        eval_u = n_copula.conditional_sample(
+            cond_val=cond_u, sample_shape=[num_samples, ], cond_idx=cond_idx,
+            sample_idx=sample_idx)
+        return _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u).mean(dim=0)
 
 
 class GATReg(nn.Module):
@@ -222,6 +248,22 @@ class NewCMLPReg(torch.nn.Module):
         n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
         u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
         return -n_copula.log_prob(u)
+
+    def cond_predict(self, data, cov, cond_mask, eval_mask, num_samples=100):
+        if sum(cond_mask.logical_xor(eval_mask)) == 0:
+            return data.y[cond_mask]
+        n_copula = GaussianCopula(cov)
+        loc = self.forward(data)
+        scale = torch.diag(cov).pow(0.5)
+
+        cond_u = _normal_cdf(loc[cond_mask], scale[cond_mask], data.y[cond_mask])
+        cond_u = torch.clamp(cond_u, 0.01, 0.99)
+        cond_idx = torch.where(cond_mask)[0]
+        sample_idx = torch.where(eval_mask)[0]
+        eval_u = n_copula.conditional_sample(
+            cond_val=cond_u, sample_shape=[num_samples, ], cond_idx=cond_idx,
+            sample_idx=sample_idx)
+        return _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u).mean(dim=0)
 
 
 class LSMReg(nn.Module):
