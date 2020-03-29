@@ -23,6 +23,8 @@ for f in os.listdir("{}/results".format(path)):
     tmp = temp[-1].split("_")
 #     setting_valid = (tmp[1], tmp[5], tmp[6], "_".join([model, lamda]), "valid")
 #     res[setting_valid] = res.get(setting_valid, [])
+    if model == "lsm_gcn":
+        model = "lsmgcn"
     setting_test = (tmp[1], tmp[5], tmp[6], "_".join([model, lamda]), "test")
     res[setting_test] = res.get(setting_test, [])
     for i, t in enumerate(temp):
@@ -34,8 +36,6 @@ for f in os.listdir("{}/results".format(path)):
 results = OrderedDict()
 for key in sorted(res):
     if key[0] != mode:
-        continue
-    if key[3].startswith("lsm_gcn"):
         continue
     new_key = (key[1][1:], key[2][1:], key[3].split("_")[0])
     results[new_key] = res[key]
