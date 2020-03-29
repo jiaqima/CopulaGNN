@@ -1,6 +1,7 @@
 from __future__ import division, print_function
 
 import math
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -141,6 +142,52 @@ class NewCGCNReg(nn.Module):
         return eval_y.mean(dim=0)
 
 
+class SpectralCGCNReg(nn.Module):
+    """SpectralCGCN Regressor."""
+
+    def __init__(self,
+                 num_features,
+                 hidden_size,
+                 adj,
+                 dropout=0.,
+                 activation="relu"):
+        """Initializes a SpectralCGCN Regressor.
+        """
+        super(SpectralCGCNReg, self).__init__()
+        self.conv1 = GCNConv(num_features, hidden_size)
+        self.conv2 = GCNConv(hidden_size, 1)
+
+        self.dropout = dropout
+        assert activation in ["relu", "elu"]
+        self.activation = getattr(F, activation)
+
+        L = np.diag(adj.sum(axis=0)) - adj
+        w, v = np.linalg.eig(L + np.eye(L.shape[0]))
+        w = 1. / w
+        self.register_buffer("evec", torch.tensor(v, dtype=torch.float32))
+        self.inv_eval = nn.Parameter(torch.tensor(1. / w, dtype=torch.float32))
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        # x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv2(x, edge_index)
+        return x.view(-1)
+
+    def nll_spectral_copula(self, pred, label, mask):
+        inv_eval = self.inv_eval.sign() * self.inv_eval.abs().clamp(min=0.1)
+        evec = self.evec[mask]
+        cov = evec.matmul(torch.diag(inv_eval)).matmul(evec.t())
+        n_copula = GaussianCopula(cov)
+        n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
+        u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
+
+        normal = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
+        nll_q = -normal.log_prob(label)
+        return -n_copula.log_prob(u) + nll_q.sum()
+
+
 class GATReg(nn.Module):
     def __init__(self,
                  num_features,
@@ -274,6 +321,48 @@ class NewCMLPReg(torch.nn.Module):
             eval_y[inf_mask] = 0
             return eval_y.sum(dim=0) / (inf_mask.size(0) - inf_mask.sum())
         return eval_y.mean(dim=0)
+
+
+class SpectralCMLPReg(torch.nn.Module):
+    def __init__(self,
+                 num_features,
+                 hidden_size,
+                 adj,
+                 dropout=0.5,
+                 activation="relu"):
+        super(SpectralCMLPReg, self).__init__()
+        self.fc1 = nn.Linear(num_features, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 1)
+
+        self.dropout = dropout
+        assert activation in ["relu", "elu"]
+        self.activation = getattr(F, activation)
+
+        L = np.diag(adj.sum(axis=0)) - adj
+        w, v = np.linalg.eig(L + np.eye(L.shape[0]))
+        w = 1. / w
+        self.register_buffer("evec", torch.tensor(v, dtype=torch.float32))
+        self.inv_eval = nn.Parameter(torch.tensor(1. / w, dtype=torch.float32))
+
+    def forward(self, data):
+        x = data.x
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.fc1(x))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.fc2(x)
+        return x.view(-1)
+
+    def nll_spectral_copula(self, pred, label, mask):
+        inv_eval = self.inv_eval.sign() * self.inv_eval.abs().clamp(min=0.1)
+        evec = self.evec[mask]
+        cov = evec.matmul(torch.diag(inv_eval)).matmul(evec.t())
+        n_copula = GaussianCopula(cov)
+        n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
+        u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
+
+        normal = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
+        nll_q = -normal.log_prob(label)
+        return -n_copula.log_prob(u) + nll_q.sum()
 
 
 class LSMReg(nn.Module):

@@ -6,14 +6,16 @@ def build_cmd(cmd):
         cmds.append(cmd)
         return
     if "mean_mode" not in cmd:
-        for mean_mode in ["xw", "daxw"]:
+        # for mean_mode in ["xw", "daxw"]:
+        for mean_mode in ["xw"]:
             build_cmd(cmd + " --mean_mode {}".format(mean_mode))
     elif "model_type" not in cmd:
         # for model_type in [
         #         "gcn", "mlp", "newcgcn", "newcmlp", "noisynewcgcn",
         #         "noisynewcmlp"
         # ]:
-        for model_type in ["condnewcgcn", "condnewcmlp"]:
+        # for model_type in ["condnewcgcn", "condnewcmlp"]:
+        for model_type in ["spectralcmlp"]:
             build_cmd(cmd + " --model_type {}".format(model_type))
     elif "tau" not in cmd:
         # for tau in [1.]:
