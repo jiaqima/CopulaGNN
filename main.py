@@ -141,6 +141,7 @@ if hasattr(model, "gen"):
                                        data.y[data.train_mask])
         return args.lamda * nll_generative + nll_discriminative
 elif hasattr(model, "nll_copula"):
+    m_adj = adj
     if args.model_type.startswith("noisy"):
         rs = np.random.RandomState(0)
         temp = adj + rs.normal(0, 0.2, size=adj.shape)
@@ -148,9 +149,8 @@ elif hasattr(model, "nll_copula"):
         temp[temp <= 0.5] = 0
         temp += temp.T
         temp[temp > 0] = 1
-        L = np.diag(temp.sum(axis=0)) - temp
-    else:
-        L = np.diag(adj.sum(axis=0)) - adj
+        m_adj = temp
+    L = np.diag(m_adj.sum(axis=0)) - m_adj
     cov = args.m_tau * np.linalg.inv(L + args.m_gamma * np.eye(adj.shape[0]))
     cov = torch.tensor(cov, dtype=torch.float32).to(args.device)
     cov = cov[data.train_mask, :]
