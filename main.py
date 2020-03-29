@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from data import generate_lsn, to_data
-from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg, NewCMLPReg, NewCGCNReg, SpectralCMLPReg, SpectralCGCNReg
+from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg, NewCMLPReg, NewCGCNReg, SpectralCMLPReg, SpectralCGCNReg, RegressionCMLPReg
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
 torch.autograd.set_detect_anomaly(True)
@@ -139,6 +139,8 @@ elif args.model_type in ["spectralcmlp"]:
     model = SpectralCMLPReg(**model_args)
 elif args.model_type in ["spectralcgcn"]:
     model = SpectralCGCNReg(**model_args)
+elif args.model_type in ["regressioncmlp"]:
+    model = RegressionCMLPReg(**model_args)
 else:
     raise NotImplementedError("Model {} is not supported.".format(
         args.model_type))
@@ -187,6 +189,12 @@ elif hasattr(model, "nll_spectral_copula"):
         pred = model(data)[data.train_mask]
         label = data.y[data.train_mask]
         nll = model.nll_spectral_copula(pred, label, data.train_mask)
+        return nll
+
+elif hasattr(model, "nll_regression_copula"):
+
+    def train_loss_fn(model, data):  # new copula loss (joint NLL)
+        nll = model.nll_regression_copula(data)
         return nll
 
 elif args.model_type.startswith("mn"):

@@ -10,6 +10,7 @@ from copula import GaussianCopula
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
 from torch_geometric.nn import GATConv, GCNConv
+from torch_geometric.utils import get_laplacian, to_dense_adj
 
 
 def _normal_cdf(loc, scale, value):
@@ -356,6 +357,69 @@ class SpectralCMLPReg(torch.nn.Module):
         inv_eval = F.softplus(self.inv_eval)
         evec = self.evec[mask]
         cov = evec.matmul(torch.diag(inv_eval)).matmul(evec.t())
+        n_copula = GaussianCopula(cov)
+        n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
+        u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
+
+        normal = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
+        nll_q = -normal.log_prob(label)
+        return -n_copula.log_prob(u) + nll_q.sum()
+
+
+class RegressionCMLPReg(torch.nn.Module):
+    def __init__(self,
+                 num_features,
+                 hidden_size,
+                 dropout=0.5,
+                 activation="relu"):
+        super(RegressionCMLPReg, self).__init__()
+        self.fc1 = nn.Linear(num_features, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 1)
+
+        self.dropout = dropout
+        assert activation in ["relu", "elu"]
+        self.activation = getattr(F, activation)
+
+        self.fc3 = nn.Linear(num_features * 2, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, 1)
+
+    def forward(self, data):
+        x = data.x
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.fc1(x))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.fc2(x)
+        return x.view(-1)
+
+    def regress_cov(self, data):
+        triangle_mask = data.edge_index[0] < data.edge_index[1]
+        edge_index = torch.stack([data.edge_index[0][triangle_mask],
+                                  data.edge_index[1][triangle_mask]])
+        x_query = F.embedding(edge_index[0], data.x)
+        x_key = F.embedding(edge_index[1], data.x)
+        x = torch.cat([x_query, x_key], dim=1)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.activation(self.fc3(x))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = F.softplus(self.fc4(x))
+        und_edge_index = torch.stack(
+            [torch.cat([edge_index[0], edge_index[1]], dim=0),
+             torch.cat([edge_index[1], edge_index[0]], dim=0)])
+        und_edge_weight = torch.cat([x.view(-1), x.view(-1)], dim=0)
+        L_edge_index, L_edge_weight = get_laplacian(
+            und_edge_index, edge_weight=und_edge_weight,
+            num_nodes=data.x.size(0))
+        L = to_dense_adj(L_edge_index, edge_attr=L_edge_weight)[0]
+        return torch.inverse(
+            L + torch.eye(L.size(0), dtype=L.dtype, device=L.device))
+
+    def nll_regression_copula(self, data):
+        cov = self.regress_cov(data)
+        cov = cov[data.train_mask, :]
+        cov = cov[:, data.train_mask]
+        pred = self.forward(data)[data.train_mask]
+        label = data.y[data.train_mask]
+
         n_copula = GaussianCopula(cov)
         n_pred = Normal(loc=pred, scale=torch.diag(cov).pow(0.5))
         u = torch.clamp(n_pred.cdf(label), 0.01, 0.99)
