@@ -133,7 +133,12 @@ class NewCGCNReg(nn.Module):
         eval_u = n_copula.conditional_sample(
             cond_val=cond_u, sample_shape=[num_samples, ], cond_idx=cond_idx,
             sample_idx=sample_idx)
-        return _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u).mean(dim=0)
+        eval_y = _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u)
+        if (eval_y == float("inf")).sum() > 0:
+            inf_mask = eval_y.sum(dim=-1) == float("inf")
+            eval_y[inf_mask] = 0
+            return eval_y.sum(dim=0) / (inf_mask.size(0) - inf_mask.sum())
+        return eval_y.mean(dim=0)
 
 
 class GATReg(nn.Module):
@@ -263,7 +268,12 @@ class NewCMLPReg(torch.nn.Module):
         eval_u = n_copula.conditional_sample(
             cond_val=cond_u, sample_shape=[num_samples, ], cond_idx=cond_idx,
             sample_idx=sample_idx)
-        return _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u).mean(dim=0)
+        eval_y = _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u)
+        if (eval_y == float("inf")).sum() > 0:
+            inf_mask = eval_y.sum(dim=-1) == float("inf")
+            eval_y[inf_mask] = 0
+            return eval_y.sum(dim=0) / (inf_mask.size(0) - inf_mask.sum())
+        return eval_y.mean(dim=0)
 
 
 class LSMReg(nn.Module):
