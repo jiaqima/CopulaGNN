@@ -7,7 +7,7 @@ def build_cmd(cmd):
         return
     if "mean_mode" not in cmd:
         # for mean_mode in ["xw", "daxw"]:
-        for mean_mode in ["xw"]:
+        for mean_mode in ["daxw"]:
             build_cmd(cmd + " --mean_mode {}".format(mean_mode))
     elif "model_type" not in cmd:
         # for model_type in [
@@ -15,7 +15,7 @@ def build_cmd(cmd):
         #         "noisynewcmlp"
         # ]:
         # for model_type in ["condnewcgcn", "condnewcmlp"]:
-        for model_type in ["spectralcmlp"]:
+        for model_type in ["regressioncgcn"]:
             build_cmd(cmd + " --model_type {}".format(model_type))
     elif "tau" not in cmd:
         # for tau in [1.]:

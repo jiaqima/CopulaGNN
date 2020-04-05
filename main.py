@@ -10,10 +10,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from data import generate_lsn, to_data
-from models import CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg, NewCMLPReg, NewCGCNReg, SpectralCMLPReg, SpectralCGCNReg, RegressionCMLPReg
+from models import (CGCNReg, CMLPReg, GATReg, GCNReg, GenGNN, MLPReg,
+                    NewCGCNReg, NewCMLPReg, RegressionCGCNReg,
+                    RegressionCMLPReg, SpectralCGCNReg, SpectralCMLPReg)
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
-torch.autograd.set_detect_anomaly(True)
 
 parser = argparse.ArgumentParser(description='Main.')
 parser.add_argument("--verbose", type=int, default=2)
@@ -141,6 +142,8 @@ elif args.model_type in ["spectralcgcn"]:
     model = SpectralCGCNReg(**model_args)
 elif args.model_type in ["regressioncmlp"]:
     model = RegressionCMLPReg(**model_args)
+elif args.model_type in ["regressioncgcn"]:
+    model = RegressionCGCNReg(**model_args)
 else:
     raise NotImplementedError("Model {} is not supported.".format(
         args.model_type))
