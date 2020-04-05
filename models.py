@@ -265,7 +265,7 @@ class RegressionCGCNReg(nn.Module):
         sample_idx = torch.where(eval_mask)[0]
         eval_u = n_copula.conditional_sample(
             cond_val=cond_u, sample_shape=[num_samples, ], cond_idx=cond_idx,
-            sample_idx=sample_idx)
+            sample_idx=sample_idx).clamp(min=0.01, max=0.99)
         eval_y = _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u)
         if (eval_y == float("inf")).sum() > 0:
             inf_mask = eval_y.sum(dim=-1) == float("inf")
@@ -405,7 +405,7 @@ class NewCMLPReg(torch.nn.Module):
         sample_idx = torch.where(eval_mask)[0]
         eval_u = n_copula.conditional_sample(
             cond_val=cond_u, sample_shape=[num_samples, ], cond_idx=cond_idx,
-            sample_idx=sample_idx)
+            sample_idx=sample_idx).clamp(min=0.01, max=0.99)
         eval_y = _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u)
         if (eval_y == float("inf")).sum() > 0:
             inf_mask = eval_y.sum(dim=-1) == float("inf")

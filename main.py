@@ -273,6 +273,8 @@ def test():
     with torch.no_grad():
         if hasattr(model, "predict"):
             logits = model.predict(data, num_samples=1000)
+        elif hasattr(model, "post") and model.post_type in ["regressioncgcn"]:
+            logits = model(data, num_samples=1000)
         else:
             logits = model(data)
         train_loss = test_loss_fn(logits, data, data.train_mask)
