@@ -162,7 +162,7 @@ class SpectralCGCNReg(nn.Module):
         self.activation = getattr(F, activation)
 
         L = np.diag(adj.sum(axis=0)) - adj
-        w, v = np.linalg.eig(L + np.eye(L.shape[0]))
+        w, v = np.linalg.eigh(L + np.eye(L.shape[0]))
         w = 1. / w
         self.register_buffer("evec", torch.tensor(v, dtype=torch.float32))
         self.inv_eval = nn.Parameter(torch.tensor(1. / w, dtype=torch.float32))
@@ -176,7 +176,7 @@ class SpectralCGCNReg(nn.Module):
         return x.view(-1)
 
     def nll_spectral_copula(self, pred, label, mask):
-        inv_eval = self.inv_eval.sign() * self.inv_eval.abs().clamp(min=0.1)
+        inv_eval = F.softplus(self.inv_eval)
         evec = self.evec[mask]
         cov = evec.matmul(torch.diag(inv_eval)).matmul(evec.t())
         n_copula = GaussianCopula(cov)
@@ -339,7 +339,7 @@ class SpectralCMLPReg(torch.nn.Module):
         self.activation = getattr(F, activation)
 
         L = np.diag(adj.sum(axis=0)) - adj
-        w, v = np.linalg.eig(L + np.eye(L.shape[0]))
+        w, v = np.linalg.eigh(L + np.eye(L.shape[0]))
         w = 1. / w
         self.register_buffer("evec", torch.tensor(v, dtype=torch.float32))
         self.inv_eval = nn.Parameter(torch.tensor(1. / w, dtype=torch.float32))
@@ -353,7 +353,7 @@ class SpectralCMLPReg(torch.nn.Module):
         return x.view(-1)
 
     def nll_spectral_copula(self, pred, label, mask):
-        inv_eval = self.inv_eval.sign() * self.inv_eval.abs().clamp(min=0.1)
+        inv_eval = F.softplus(self.inv_eval)
         evec = self.evec[mask]
         cov = evec.matmul(torch.diag(inv_eval)).matmul(evec.t())
         n_copula = GaussianCopula(cov)
