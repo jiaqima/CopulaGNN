@@ -157,12 +157,22 @@ else:
 
 if hasattr(model, "gen"):
 
-    def train_loss_fn(model, data):
-        post_y_pred = model(data)
-        nll_generative = model.gen.nll_generative(data, post_y_pred)
-        nll_discriminative = criterion(post_y_pred[data.train_mask],
-                                       data.y[data.train_mask])
-        return args.lamda * nll_generative + nll_discriminative
+    if model.post_type in ["regressioncgcn"]:
+
+        def train_loss_fn(model, data):
+            post_y_pred = model(data)
+            nll_generative = model.gen.nll_generative(data, post_y_pred)
+            nll_discriminative = model.post.nll_regression_copula(data)
+            return args.lamda * nll_generative + nll_discriminative
+
+    else:
+
+        def train_loss_fn(model, data):
+            post_y_pred = model(data)
+            nll_generative = model.gen.nll_generative(data, post_y_pred)
+            nll_discriminative = criterion(post_y_pred[data.train_mask],
+                                           data.y[data.train_mask])
+            return args.lamda * nll_generative + nll_discriminative
 
 elif hasattr(model, "nll_copula"):
     L = np.diag(m_adj.sum(axis=0)) - m_adj
@@ -261,7 +271,10 @@ def train():
 def test():
     model.eval()
     with torch.no_grad():
-        logits = model(data)
+        if hasattr(model, "predict"):
+            logits = model.predict(data)
+        else:
+            logits = model(data)
         train_loss = test_loss_fn(logits, data, data.train_mask)
         valid_loss = test_loss_fn(logits, data, data.valid_mask)
         test_loss = test_loss_fn(logits, data, data.test_mask)

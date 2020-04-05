@@ -491,6 +491,31 @@ class RegressionCMLPReg(torch.nn.Module):
         nll_q = -normal.log_prob(label)
         return -n_copula.log_prob(u) + nll_q.sum()
 
+    def predict(self, data, num_samples=100):
+        cond_mask = data.train_mask
+        eval_mask = data.valid_mask | data.test_mask
+        cov = self.regress_cov(data)
+        n_copula = GaussianCopula(cov)
+        loc = self.forward(data)
+        scale = torch.diag(cov).pow(0.5)
+
+        cond_u = _normal_cdf(loc[cond_mask], scale[cond_mask], data.y[cond_mask])
+        cond_u = torch.clamp(cond_u, 0.01, 0.99)
+        cond_idx = torch.where(cond_mask)[0]
+        sample_idx = torch.where(eval_mask)[0]
+        eval_u = n_copula.conditional_sample(
+            cond_val=cond_u, sample_shape=[num_samples, ], cond_idx=cond_idx,
+            sample_idx=sample_idx)
+        eval_y = _batch_normal_icdf(loc[eval_mask], scale[eval_mask], eval_u)
+        if (eval_y == float("inf")).sum() > 0:
+            inf_mask = eval_y.sum(dim=-1) == float("inf")
+            eval_y[inf_mask] = 0
+            return eval_y.sum(dim=0) / (inf_mask.size(0) - inf_mask.sum())
+
+        pred_y = data.y.clone()
+        pred_y[eval_mask] = eval_y.mean(dim=0)
+        return pred_y
+
 
 class LSMReg(nn.Module):
     def __init__(self,
@@ -578,9 +603,13 @@ class GenGNN(nn.Module):
             self.post = GCNReg(**post_config)
         elif self.post_type == "gat":
             self.post = GATReg(**post_config)
+        elif self.post_type == "regressioncgcn":
+            self.post = RegressionCGCNReg(**post_config)
         else:
             raise NotImplementedError(
                 "Posterior model type %s not supported." % self.post_type)
 
-    def forward(self, data):
+    def forward(self, data, **predict_args):
+        if hasattr(self.post, "predict"):
+            return self.post.predict(data, **predict_args)
         return self.post(data)
