@@ -272,7 +272,7 @@ def test():
     model.eval()
     with torch.no_grad():
         if hasattr(model, "predict"):
-            logits = model.predict(data)
+            logits = model.predict(data, num_samples=1000)
         else:
             logits = model(data)
         train_loss = test_loss_fn(logits, data, data.train_mask)
