@@ -1,162 +1,148 @@
-from __future__ import absolute_import, division, print_function
+from __future__ import division
+from __future__ import print_function
 
 import argparse
 import copy
+import os
 import random
 
 import numpy as np
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
+
 from data import load_data
-from models import (GAT, GCN, GenGNN, MLP,
-                    RegressionCGCN, SpectralCGCN)
-from torch_geometric.utils import to_dense_adj
+from models import GCN, GAT, MLP, GenGNN
 
-import warnings
+# Training settings
+parser = argparse.ArgumentParser()
 
-warnings.filterwarnings("ignore")
-
-parser = argparse.ArgumentParser(description='Main.')
-parser.add_argument("--verbose", type=int, default=2)
-parser.add_argument("--debug", action="store_true")
+# General configs.
+parser.add_argument("--dataset", default="cora")
+parser.add_argument("--model", default="gcn")
+parser.add_argument("--num_labels_per_class", type=int, default=20)
+parser.add_argument("--result_path", default="results")
+parser.add_argument("--seed", type=int, default=0, help="Random seed.")
+parser.add_argument(
+    '--missing_edge',
+    action='store_true',
+    default=False,
+    help='Missing edge in test set.')
+parser.add_argument(
+    "--epochs", type=int, default=2000, help="Number of epochs to train.")
+parser.add_argument(
+    "--patience", type=int, default=200, help="Early stopping patience.")
 parser.add_argument("--device", default="cuda")
-parser.add_argument("--seed", type=int, default=10)
+parser.add_argument("--verbose", type=int, default=1, help="Verbose.")
 
-# Dataset configuration
-parser.add_argument("--path", default="./data")
-parser.add_argument("--dataset", default="lsn")
-parser.add_argument("--mean_mode", default="daxw")
-parser.add_argument("--num_features", type=int, default=10)
-parser.add_argument("--num_nodes", type=int, default=300)
-parser.add_argument("--num_edges", type=int, default=5000)
-parser.add_argument("--gamma", type=float, default=0.05)
-parser.add_argument("--tau", type=float, default=2)
+# Common hyper-parameters.
+parser.add_argument(
+    "--lr", type=float, default=0.01, help="Initial learning rate.")
+parser.add_argument(
+    "--weight_decay",
+    type=float,
+    default=5e-4,
+    help="Weight decay (L2 loss on parameters).")
+parser.add_argument(
+    "--hidden", type=int, default=64, help="Number of hidden units.")
+parser.add_argument(
+    "--dropout",
+    type=float,
+    default=0.5,
+    help="Dropout rate (1 - keep probability).")
+parser.add_argument("--activation", default="relu")
 
-# Model configuration.
-parser.add_argument("--model_type", default="mlp")
-parser.add_argument("--hidden_size", type=int, default=8)
-parser.add_argument("--dropout", type=float, default=0.)
-parser.add_argument("--m_gamma", type=float, default=-1)
-parser.add_argument("--m_tau", type=float, default=-1)
+# GAT hyper-parameters.
+parser.add_argument(
+    "--num_heads", type=int, default=8, help="Number of heads.")
 
-# Training configuration.
-parser.add_argument("--opt", default="Adam")
-parser.add_argument("--lr", type=float, default=0.001)
-parser.add_argument("--lamda", type=float, default=1e-2)
+# Generative model hyper-parameters.
+parser.add_argument(
+    "--lamda",
+    type=float,
+    default=1.0,
+    help="Lambda coefficient for nll_discriminative.")
+parser.add_argument(
+    "--neg_ratio", type=float, default=1.0, help="Negative sample ratio.")
 
-# Other configuration
-parser.add_argument("--test_metric", default="mse")
-parser.add_argument("--num_epochs", type=int, default=2000)
-parser.add_argument("--patience", type=int, default=30)
-parser.add_argument("--log_interval", type=int, default=10)
-parser.add_argument("--result_path", default=None)
-parser.add_argument("--save_model", action="store_true")
-parser.add_argument("--model_path", default=None)
-parser.add_argument("--save_log", action="store_true")
-parser.add_argument("--log_path", default=None)
+# LSM hyper-parameters.
+parser.add_argument(
+    "--hidden_x",
+    type=int,
+    default=2,
+    help="Number of hidden units for x_enc.")
+
+# SBM hyper-parameters.
+parser.add_argument("--p0", type=float, default=0.9, help="p0 in SBM.")
+parser.add_argument("--p1", type=float, default=0.1, help="p1 in SBM.")
 
 args = parser.parse_args()
 
-if args.m_gamma < 0:
-    args.m_gamma = args.gamma
-if args.m_tau < 0:
-    args.m_tau = args.m_tau
+random.seed(args.seed)
+np.random.seed(args.seed)
+torch.manual_seed(args.seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(args.seed)
 
-# Set random seed
-if args.seed >= 0:
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if args.device.startswith("cuda"):
-        torch.cuda.manual_seed(args.seed)
-
-data = load_data(args.dataset)
-adj = to_dense_adj(data.edge_index).cpu().numpy()
-data.to(args.device)
-criterion = nn.CrossEntropyLoss()
-
-m_adj = adj
+data = load_data(
+    dataset=args.dataset).to(args.device)
 
 model_args = {
-    "num_features": data.x.size(1),
+    "num_features": data.num_features,
     "num_classes": data.num_classes,
-    "hidden_size": args.hidden_size,
+    "hidden_size": args.hidden,
     "dropout": args.dropout,
-    "activation": "relu"
+    "activation": args.activation
 }
 
-if "spectral" in args.model_type:
-    model_args["adj"] = m_adj
-
-if args.model_type in ["mlp"]:
-    model = MLP(**model_args)
-elif args.model_type in ["gcn"]:
+if args.model == "gcn":
     model = GCN(**model_args)
-elif args.model_type == "gat":
+elif args.model == "gat":
+    model_args["num_heads"] = args.num_heads
+    model_args["hidden_size"] = int(args.hidden / args.num_heads)
     model = GAT(**model_args)
-elif "_" in args.model_type:
-    gen_type, post_type = args.model_type.split("_")
+elif args.model == "mlp":
+    model = MLP(**model_args)
+else:
+    gen_type, post_type = args.model.split("_")
 
     gen_config = copy.deepcopy(model_args)
     gen_config["type"] = gen_type
-    gen_config["neg_ratio"] = 1.0
+    gen_config["neg_ratio"] = args.neg_ratio
     if gen_type == "lsm":
-        gen_config["hidden_x"] = args.hidden_size
+        gen_config["hidden_x"] = args.hidden_x
+    if gen_type == "sbm":
+        gen_config["p0"] = args.p0
+        gen_config["p1"] = args.p1
 
     post_config = copy.deepcopy(model_args)
     post_config["type"] = post_type
-    # if post_type == "gat":
-    #     post_config["num_heads"] = args.num_heads
-    #     post_config["hidden_size"] = int(args.hidden / args.num_heads)
+    if post_type == "gat":
+        post_config["num_heads"] = args.num_heads
+        post_config["hidden_size"] = int(args.hidden / args.num_heads)
     model = GenGNN(gen_config, post_config)
-elif args.model_type in ["spectralcgcn"]:
-    model = SpectralCGCN(**model_args)
-elif args.model_type in ["regressioncgcn"]:
-    model = RegressionCGCN(**model_args)
-else:
-    raise NotImplementedError("Model {} is not supported.".format(
-        args.model_type))
-model.to(args.device)
 
-if args.opt == "Adam":
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=5e-4)
-else:
-    raise NotImplementedError("Optimizer {} is not supported.".format(
-        args.opt))
+model = model.to(args.device)
+optimizer = optim.Adam(
+    model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
 if hasattr(model, "gen"):
 
-    if model.post_type in ["regressioncgcn"]:
-
-        def train_loss_fn(model, data):
-            post_y_pred = model(data)
-            nll_generative = model.gen.nll_generative(data, post_y_pred)
-            nll_discriminative = model.post.nll(data)
-            return args.lamda * nll_generative + nll_discriminative
-
-    else:
-
-        def train_loss_fn(model, data):
-            post_y_pred = model(data)
-            nll_generative = model.gen.nll_generative(data, post_y_pred)
-            nll_discriminative = criterion(post_y_pred[data.train_mask],
-                                           data.y[data.train_mask])
-            return args.lamda * nll_generative + nll_discriminative
-
-elif hasattr(model, "nll"):
-
     def train_loss_fn(model, data):
-        return model.nll(data)
-
+        post_y_log_prob = model(data)
+        nll_generative = model.gen.nll_generative(data, post_y_log_prob)
+        nll_discriminative = F.nll_loss(post_y_log_prob[data.train_mask],
+                                        data.y[data.train_mask])
+        return nll_generative + args.lamda * nll_discriminative
 else:
 
     def train_loss_fn(model, data):
-        return criterion(model(data)[data.train_mask], data.y[data.train_mask])
+        return F.nll_loss(
+            model(data)[data.train_mask], data.y[data.train_mask])
 
 
-def test_loss_fn(logits, data, mask):
-    return criterion(logits[mask], data.y[mask]).item()
+def val_loss_fn(logits, data):
+    return F.nll_loss(logits[data.val_mask], data.y[data.val_mask]).item()
 
 
 def train():
@@ -169,42 +155,50 @@ def train():
 
 def test():
     model.eval()
-    with torch.no_grad():
-        if hasattr(model, "predict"):
-            logits = model.predict(data, num_samples=1000)
-            # logits = model(data)
-        elif hasattr(model, "post") and model.post_type in ["regressioncgcn"]:
-            logits = model(data, num_samples=1000)
-            # logits = model.post(data)
-        else:
-            logits = model(data)
-        train_loss = test_loss_fn(logits, data, data.train_mask)
-        valid_loss = test_loss_fn(logits, data, data.valid_mask)
-        test_loss = test_loss_fn(logits, data, data.test_mask)
-        accs = []
-        for _, mask in data('train_mask', 'valid_mask', 'test_mask'):
-            pred = logits[mask].max(1)[1]
-            acc = pred.eq(data.y[mask]).sum().item() / mask.sum().item()
-            accs.append(acc)
-    return train_loss, valid_loss, test_loss, accs
+    logits = model(data)
+    val_loss = val_loss_fn(logits, data)
+    accs = []
+    for _, mask in data('train_mask', 'val_mask', 'test_mask'):
+        pred = logits[mask].max(1)[1]
+        acc = pred.eq(data.y[mask]).sum().item() / mask.sum().item()
+        accs.append(acc)
+    return val_loss, accs
 
 
+# Training.
 patience = args.patience
-best_metric = np.inf
-selected_metrics = []
-model.train()
-for epoch in range(args.num_epochs):
+best_val_loss = np.inf
+selected_accs = None
+for epoch in range(1, args.epochs):
+    if patience < 0:
+        break
     train()
-    if (epoch + 1) % args.log_interval == 0:
-        train_loss, valid_loss, test_loss, accs = test()
-        this_metric = valid_loss
-        patience -= 1
-        if this_metric < best_metric:
-            patience = args.patience
-            best_metric = this_metric
-            selected_metrics = [valid_loss, test_loss]
-        if patience == 0:
-            break
-        if args.verbose > 1:
-            print("Epoch {}: train {:.4f}, valid {:.4f}, test {:.4f}".format(
-                epoch, *accs))
+    val_loss, accs = test()
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        selected_accs = accs
+        patience = args.patience
+        if args.verbose > 0:
+            log = 'Epoch: {:03d}, Train: {:.4f}, Val: {:.4f}, Test: {:.4f}'
+            print(log.format(epoch, *accs))
+    patience -= 1
+
+# Save results.
+if args.verbose < 1:
+    result_path = os.path.join(
+        args.result_path,
+        "%s/nl%d" % (args.dataset, args.num_labels_per_class))
+    if not os.path.exists(result_path):
+        os.makedirs(result_path)
+
+    results = "vacc_%.4f_tacc_%.4f_seed_%d" % (
+        selected_accs[1], selected_accs[2], args.seed)
+    model_settng = "model_%s_lr_%.6f_h_%03d_l2_%.6f" % (
+        args.model, args.lr, args.hidden, args.weight_decay)
+    misc_hp = "act_%s_nh_%d_lambda_%.2f_nr_%.2f_hx_%d_p0_%.2f_p1_%.2f" % (
+        args.activation, args.num_heads, args.lamda, args.neg_ratio,
+        args.hidden_x, args.p0, args.p1)
+    fname = os.path.join(result_path,
+                         "_".join([results, model_settng, misc_hp]))
+    with open(fname, "w") as f:
+        pass
