@@ -9,6 +9,23 @@ from torch.nn import Linear
 from torch_geometric.nn import GCNConv, GATConv
 
 
+def batched_index_select(input, dim, index):
+    if dim == -1:
+        dim = len(input.shape) - 1
+    views = [input.shape[0]] + \
+        [1 if i != dim else -1 for i in range(1, len(input.shape))]
+    expanse = list(input.shape)
+    expanse[0] = -1
+    expanse[dim] = -1
+    index = index.view(views).expand(expanse)
+    return torch.gather(input, dim, index)
+
+
+def _one_hot(idx, num_class):
+    return torch.zeros(len(idx), num_class).to(idx.device).scatter_(
+        1, idx.unsqueeze(1), 1.)
+
+
 class MLP(torch.nn.Module):
     def __init__(self,
                  num_features,
@@ -30,7 +47,7 @@ class MLP(torch.nn.Module):
         x = self.activation(self.fc1(x))
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
+        return x
 
 
 class GCN(torch.nn.Module):
@@ -54,7 +71,7 @@ class GCN(torch.nn.Module):
         x = self.activation(self.conv1(x, edge_index))
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.conv2(x, edge_index)
-        return F.log_softmax(x, dim=1)
+        return x
 
 
 class GAT(torch.nn.Module):
@@ -81,12 +98,7 @@ class GAT(torch.nn.Module):
         x = self.activation(self.conv1(x, edge_index))
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.conv2(x, edge_index)
-        return F.log_softmax(x, dim=1)
-
-
-def _one_hot(idx, num_class):
-    return torch.zeros(len(idx), num_class).to(idx.device).scatter_(
-        1, idx.unsqueeze(1), 1.)
+        return x
 
 
 class LSM(torch.nn.Module):

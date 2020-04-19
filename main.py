@@ -8,6 +8,7 @@ import random
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
@@ -126,23 +127,25 @@ model = model.to(args.device)
 optimizer = optim.Adam(
     model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
+criterion = nn.CrossEntropyLoss()
+
 if hasattr(model, "gen"):
 
     def train_loss_fn(model, data):
         post_y_log_prob = model(data)
         nll_generative = model.gen.nll_generative(data, post_y_log_prob)
-        nll_discriminative = F.nll_loss(post_y_log_prob[data.train_mask],
-                                        data.y[data.train_mask])
+        nll_discriminative = criterion(post_y_log_prob[data.train_mask],
+                                       data.y[data.train_mask])
         return nll_generative + args.lamda * nll_discriminative
 else:
 
     def train_loss_fn(model, data):
-        return F.nll_loss(
+        return criterion(
             model(data)[data.train_mask], data.y[data.train_mask])
 
 
 def val_loss_fn(logits, data):
-    return F.nll_loss(logits[data.val_mask], data.y[data.val_mask]).item()
+    return criterion(logits[data.val_mask], data.y[data.val_mask]).item()
 
 
 def train():
