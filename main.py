@@ -39,6 +39,11 @@ parser.add_argument(
     "--patience", type=int, default=200, help="Early stopping patience.")
 parser.add_argument("--device", default="cuda")
 parser.add_argument("--verbose", type=int, default=1, help="Verbose.")
+parser.add_argument(
+    '--eval_cov',
+    action='store_true',
+    default=False,
+    help='Whether evaluate the cov matrix.')
 
 # Common hyper-parameters.
 parser.add_argument(
@@ -183,6 +188,60 @@ else:
         return criterion(logits[data.val_mask], data.y[data.val_mask]).item()
 
 
+def eye_like(tensor):
+    return torch.eye(*tensor.size(), out=torch.empty_like(tensor))
+
+
+def eval_cov():
+    if hasattr(model, "post"):
+        cov = model.post.get_cov(data)
+    else:
+        cov = model.get_cov(data)
+    diag = torch.diag(cov).pow(-0.5)
+    corr = (torch.diag(diag)).matmul(cov).matmul(torch.diag(diag))
+    cov = cov * (1 - eye_like(cov))
+    cov[data.train_mask] = 0
+    corr = corr * (1 - eye_like(corr))
+    corr[data.train_mask] = 0
+    cov_sort = cov.reshape(-1).sort(descending=True)[0]
+    corr_sort = corr.reshape(-1).sort(descending=True)[0]
+    k_list = [50, 100, 500, 1000, 5000, 10000, 50000, 100000]
+    prec_cov = []
+    prec_corr = []
+    prec_cov_rnd = []
+    prec_corr_rnd = []
+    for k in k_list:
+        cov_thresh = cov_sort[k]
+        cov_idx = torch.nonzero(cov > cov_thresh)
+        cov_rnd = torch.randperm(cov_idx.size(0), device=cov_idx.device)
+        corr_thresh = corr_sort[k]
+        corr_idx = torch.nonzero(corr > corr_thresh)
+        corr_rnd = torch.randperm(corr_idx.size(0), device=corr_idx.device)
+        prec_cov.append(
+            torch.mean((data.y[cov_idx[:, 0]] == data.y[cov_idx[:, 1]]).to(
+                dtype=torch.float32)).item())
+        prec_cov_rnd.append(
+            torch.mean((data.y[cov_idx[cov_rnd, 0]] == data.y[cov_idx[:, 1]]).to(
+                dtype=torch.float32)).item())
+        prec_corr.append(
+            torch.mean((data.y[corr_idx[:, 0]] == data.y[corr_idx[:, 1]]).to(
+                dtype=torch.float32)).item())
+        prec_corr_rnd.append(
+            torch.mean((data.y[corr_idx[corr_rnd,
+                                        0]] == data.y[corr_idx[:, 1]]).to(
+                                            dtype=torch.float32)).item())
+
+    print("prec @    {}".format(", ".join(["%.1e" % k for k in k_list])))
+    print("cov:      {}".format(", ".join(
+        ["%.5f" % prec for prec in prec_cov])))
+    print("cov rnd:  {}".format(", ".join(["%.5f" % prec
+                                           for prec in prec_cov_rnd])))
+    print("corr:     {}".format(", ".join(
+        ["%.5f" % prec for prec in prec_corr])))
+    print("corr rnd: {}".format(", ".join(
+        ["%.5f" % prec for prec in prec_corr_rnd])))
+
+
 def train():
     model.train()
     optimizer.zero_grad()
@@ -208,6 +267,15 @@ def test():
     return val_loss, accs
 
 
+if args.eval_cov:
+    if not hasattr(model, "get_cov"):
+        if not hasattr(model, "post"):
+            args.eval_cov = False
+        elif not hasattr(model.post, "get_cov"):
+            args.eval_cov = False
+
+if args.eval_cov:
+    eval_cov()
 # Training.
 patience = args.patience
 best_val_loss = np.inf
@@ -224,6 +292,8 @@ for epoch in range(1, args.epochs):
         if args.verbose > 0:
             log = 'Epoch: {:03d}, Train: {:.4f}, Val: {:.4f}, Test: {:.4f}'
             print(log.format(epoch, *accs))
+            if args.eval_cov:
+                eval_cov()
     patience -= 1
 
 # Save results.
