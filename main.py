@@ -11,9 +11,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch_geometric.utils import to_dense_adj
 
 from data import load_data
-from models import GCN, GAT, MLP, GenGNN
+from models import (GAT, GCN, GenGNN, MLP,
+                    RegressionCGCN, SpectralCGCN)
+
+from models import _one_hot
 
 # Training settings
 parser = argparse.ArgumentParser()
@@ -87,6 +91,7 @@ if torch.cuda.is_available():
 
 data = load_data(
     dataset=args.dataset).to(args.device)
+adj = to_dense_adj(data.edge_index).cpu().numpy()
 
 model_args = {
     "num_features": data.num_features,
@@ -104,6 +109,11 @@ elif args.model == "gat":
     model = GAT(**model_args)
 elif args.model == "mlp":
     model = MLP(**model_args)
+elif args.model == "spectralcgcn":
+    model_args["adj"] = adj
+    model = SpectralCGCN(**model_args)
+elif args.model == "regressioncgcn":
+    model = RegressionCGCN(**model_args)
 else:
     gen_type, post_type = args.model.split("_")
 
@@ -121,6 +131,8 @@ else:
     if post_type == "gat":
         post_config["num_heads"] = args.num_heads
         post_config["hidden_size"] = int(args.hidden / args.num_heads)
+    if post_type == "spectralcgcn":
+        post_config["adj"] = adj
     model = GenGNN(gen_config, post_config)
 
 model = model.to(args.device)
@@ -131,12 +143,28 @@ criterion = nn.CrossEntropyLoss()
 
 if hasattr(model, "gen"):
 
+    if model.post_type in ["regressioncgcn"]:
+
+        def train_loss_fn(model, data):
+            post_y_pred = model(data)
+            nll_generative = model.gen.nll_generative(data, post_y_pred)
+            nll_discriminative = model.post.nll(data)
+            return args.lamda * nll_generative + nll_discriminative
+
+    else:
+
+        def train_loss_fn(model, data):
+            post_y_log_prob = model(data)
+            nll_generative = model.gen.nll_generative(data, post_y_log_prob)
+            nll_discriminative = criterion(post_y_log_prob[data.train_mask],
+                                           data.y[data.train_mask])
+            return nll_generative + args.lamda * nll_discriminative
+
+elif hasattr(model, "nll"):
+
     def train_loss_fn(model, data):
-        post_y_log_prob = model(data)
-        nll_generative = model.gen.nll_generative(data, post_y_log_prob)
-        nll_discriminative = criterion(post_y_log_prob[data.train_mask],
-                                       data.y[data.train_mask])
-        return nll_generative + args.lamda * nll_discriminative
+        return model.nll(data)
+
 else:
 
     def train_loss_fn(model, data):
@@ -144,8 +172,15 @@ else:
             model(data)[data.train_mask], data.y[data.train_mask])
 
 
-def val_loss_fn(logits, data):
-    return criterion(logits[data.val_mask], data.y[data.val_mask]).item()
+if hasattr(model, "predict") or (hasattr(model, "post") and model.post_type in ["regressioncgcn"]):
+
+    def val_loss_fn(logits, data):
+        return F.nll_loss(torch.log(logits[data.val_mask]), data.y[data.val_mask]).item()
+
+else:
+
+    def val_loss_fn(logits, data):
+        return criterion(logits[data.val_mask], data.y[data.val_mask]).item()
 
 
 def train():
@@ -158,7 +193,12 @@ def train():
 
 def test():
     model.eval()
-    logits = model(data)
+    if hasattr(model, "predict"):
+        logits = model.predict(data, num_samples=1000)
+    elif hasattr(model, "post") and model.post_type in ["regressioncgcn"]:
+        logits = model(data, num_samples=1000)
+    else:
+        logits = model(data)
     val_loss = val_loss_fn(logits, data)
     accs = []
     for _, mask in data('train_mask', 'val_mask', 'test_mask'):
