@@ -61,6 +61,8 @@ parser.add_argument(
     default=0.5,
     help="Dropout rate (1 - keep probability).")
 parser.add_argument("--activation", default="relu")
+parser.add_argument(
+    "--temperature", type=float, default=1.0, help="Softmax temperature.")
 
 # GAT hyper-parameters.
 parser.add_argument(
@@ -103,7 +105,8 @@ model_args = {
     "num_classes": data.num_classes,
     "hidden_size": args.hidden,
     "dropout": args.dropout,
-    "activation": args.activation
+    "activation": args.activation,
+    "temperature": args.temperature
 }
 
 if args.model == "gcn":

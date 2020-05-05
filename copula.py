@@ -122,9 +122,24 @@ class GaussianCopula(Distribution):
         reg_coeff, _ = torch.solve(cov_10, cov_11)  # Sigma_{11}^{-1} Sigma_{10}
         cond_mu = torch.mv(reg_coeff.t(), cond_val_nscale)
         cond_sigma = cov_00 - torch.mm(cov_01, reg_coeff)
-        cond_normal = MultivariateNormal(loc=cond_mu, covariance_matrix=cond_sigma)
 
-        samples_nscale = cond_normal.sample(sample_shape)
+        # ### direct sample
+        # cond_normal = MultivariateNormal(loc=cond_mu, covariance_matrix=cond_sigma)
+        # samples_nscale = cond_normal.sample(sample_shape)
+        # ### direct sample
+
+        # ### Cholesky reparameterization
+        identity_mat = torch.eye(
+            cond_mu.size(0), dtype=cond_mu.dtype, device=cond_mu.device)
+        std_normal = MultivariateNormal(
+            loc=torch.zeros_like(cond_mu), covariance_matrix=identity_mat)
+        cond_sigma_cholesky = torch.cholesky(cond_sigma)
+        samples_noise = std_normal.sample(sample_shape)
+        samples_nscale = cond_mu.unsqueeze(0) + torch.stack(
+            [torch.matmul(cond_sigma_cholesky, samples_noise[i])
+             for i in range(samples_noise.size(0))])
+        # ### Cholesky reparameterization
+
         samples_uscale = _standard_normal_cdf(samples_nscale)
 
         return samples_uscale
