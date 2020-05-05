@@ -192,10 +192,11 @@ class RegressionCGCN(GCN, CopulaModel):
                  num_classes,
                  hidden_size,
                  dropout=0.,
-                 activation="relu"):
+                 activation="relu",
+                 temperature=1.0):
         super().__init__(num_features=num_features, num_classes=num_classes,
                          hidden_size=hidden_size, dropout=dropout,
-                         activation=activation)
+                         activation=activation, temperature=temperature)
 
         self.reg_fc1 = nn.Linear(num_features * 2, hidden_size)
         self.reg_fc2 = nn.Linear(hidden_size, 1)
@@ -231,10 +232,11 @@ class SpectralCGCN(GCN, CopulaModel):
                  hidden_size,
                  adj,
                  dropout=0.,
-                 activation="relu"):
+                 activation="relu",
+                 temperature=1.0):
         super().__init__(num_features=num_features, num_classes=num_classes,
                          hidden_size=hidden_size, dropout=dropout,
-                         activation=activation)
+                         activation=activation, temperature=temperature)
 
         L = np.diag(adj.sum(axis=0)) - adj
         w, v = np.linalg.eigh(L + np.eye(L.shape[0]))
@@ -256,10 +258,11 @@ class LSM(torch.nn.Module):
                  hidden_x,
                  dropout=0.5,
                  activation="relu",
+                 temperature=1.0,
                  neg_ratio=1.0):
         super(LSM, self).__init__()
         self.p_y_x = MLP(num_features, num_classes, hidden_size, dropout,
-                         activation)
+                         activation, temperature)
         self.x_enc = Linear(num_features, hidden_x)
         self.p_e_xy = Linear(2 * (hidden_x + num_classes), 1)
 
@@ -337,12 +340,13 @@ class SBM(torch.nn.Module):
                  hidden_size,
                  dropout=0.5,
                  activation="relu",
+                 temperature=1.0,
                  p0=0.9,
                  p1=0.1,
                  neg_ratio=1.0):
         super(SBM, self).__init__()
         self.p_y_x = MLP(num_features, num_classes, hidden_size, dropout,
-                         activation)
+                         activation, temperature)
         self.p0 = p0
         self.p1 = p1
         self.neg_ratio = neg_ratio
