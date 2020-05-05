@@ -157,7 +157,7 @@ class CopulaModel(nn.Module):
         u = self.cdf(logits, labels, deterministic=False)
 
         nll_q = self.ce(logits, labels)
-        return -n_copula.log_prob(u) + nll_q
+        return (-n_copula.log_prob(u) + nll_q) / labels.size(0)
 
     def predict(self, data, num_samples=100):
         cond_mask = data.train_mask
