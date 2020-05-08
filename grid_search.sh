@@ -2,7 +2,7 @@
 
 for hidden in 16 32 64 128 256
 do
-    for lr in 0.1 0.01 0.001 0.0001 0.00001
+    for lr in 0.2 0.4 0.6 0.8 
     do
         for lamda in 0.01 0.1 1 10 100
         do
