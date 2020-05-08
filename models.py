@@ -36,7 +36,8 @@ class MLP(torch.nn.Module):
                  num_classes,
                  hidden_size,
                  dropout=0.5,
-                 activation="relu"):
+                 activation="relu",
+                 temperature=1.0):
         super(MLP, self).__init__()
         self.fc1 = Linear(num_features, hidden_size)
         self.fc2 = Linear(hidden_size, num_classes)
@@ -44,6 +45,7 @@ class MLP(torch.nn.Module):
         self.dropout = dropout
         assert activation in ["relu", "elu"]
         self.activation = getattr(F, activation)
+        self.temperature = temperature
 
     def forward(self, data):
         x = data.x
@@ -51,7 +53,7 @@ class MLP(torch.nn.Module):
         x = self.activation(self.fc1(x))
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.fc2(x)
-        return x
+        return x / self.temperature
 
 
 class GCN(torch.nn.Module):
@@ -60,7 +62,8 @@ class GCN(torch.nn.Module):
                  num_classes,
                  hidden_size,
                  dropout=0.5,
-                 activation="relu"):
+                 activation="relu",
+                 temperature=1.0):
         super(GCN, self).__init__()
         self.conv1 = GCNConv(num_features, hidden_size)
         self.conv2 = GCNConv(hidden_size, num_classes)
@@ -68,6 +71,7 @@ class GCN(torch.nn.Module):
         self.dropout = dropout
         assert activation in ["relu", "elu"]
         self.activation = getattr(F, activation)
+        self.temperature = temperature
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -75,7 +79,7 @@ class GCN(torch.nn.Module):
         x = self.activation(self.conv1(x, edge_index))
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.conv2(x, edge_index)
-        return x
+        return x / self.temperature
 
 
 class GAT(torch.nn.Module):
@@ -85,7 +89,8 @@ class GAT(torch.nn.Module):
                  hidden_size,
                  dropout=0.5,
                  activation="relu",
-                 num_heads=8):
+                 num_heads=8,
+                 temperature=1.0):
         super(GAT, self).__init__()
         self.conv1 = GATConv(
             num_features, hidden_size, heads=num_heads, dropout=dropout)
@@ -95,6 +100,7 @@ class GAT(torch.nn.Module):
         self.dropout = dropout
         assert activation in ["relu", "elu"]
         self.activation = getattr(F, activation)
+        self.temperature = temperature
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -102,7 +108,7 @@ class GAT(torch.nn.Module):
         x = self.activation(self.conv1(x, edge_index))
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.conv2(x, edge_index)
-        return x
+        return x / self.temperature
 
 
 class CopulaModel(nn.Module):
@@ -151,7 +157,7 @@ class CopulaModel(nn.Module):
         u = self.cdf(logits, labels, deterministic=False)
 
         nll_q = self.ce(logits, labels)
-        return -n_copula.log_prob(u) + nll_q
+        return (-n_copula.log_prob(u) + nll_q) / labels.size(0)
 
     def predict(self, data, num_samples=100):
         cond_mask = data.train_mask
@@ -186,10 +192,11 @@ class RegressionCGCN(GCN, CopulaModel):
                  num_classes,
                  hidden_size,
                  dropout=0.,
-                 activation="relu"):
+                 activation="relu",
+                 temperature=1.0):
         super().__init__(num_features=num_features, num_classes=num_classes,
                          hidden_size=hidden_size, dropout=dropout,
-                         activation=activation)
+                         activation=activation, temperature=temperature)
 
         self.reg_fc1 = nn.Linear(num_features * 2, hidden_size)
         self.reg_fc2 = nn.Linear(hidden_size, 1)
@@ -225,10 +232,11 @@ class SpectralCGCN(GCN, CopulaModel):
                  hidden_size,
                  adj,
                  dropout=0.,
-                 activation="relu"):
+                 activation="relu",
+                 temperature=1.0):
         super().__init__(num_features=num_features, num_classes=num_classes,
                          hidden_size=hidden_size, dropout=dropout,
-                         activation=activation)
+                         activation=activation, temperature=temperature)
 
         L = np.diag(adj.sum(axis=0)) - adj
         w, v = np.linalg.eigh(L + np.eye(L.shape[0]))
@@ -250,10 +258,11 @@ class LSM(torch.nn.Module):
                  hidden_x,
                  dropout=0.5,
                  activation="relu",
+                 temperature=1.0,
                  neg_ratio=1.0):
         super(LSM, self).__init__()
         self.p_y_x = MLP(num_features, num_classes, hidden_size, dropout,
-                         activation)
+                         activation, temperature)
         self.x_enc = Linear(num_features, hidden_x)
         self.p_e_xy = Linear(2 * (hidden_x + num_classes), 1)
 
@@ -331,12 +340,13 @@ class SBM(torch.nn.Module):
                  hidden_size,
                  dropout=0.5,
                  activation="relu",
+                 temperature=1.0,
                  p0=0.9,
                  p1=0.1,
                  neg_ratio=1.0):
         super(SBM, self).__init__()
         self.p_y_x = MLP(num_features, num_classes, hidden_size, dropout,
-                         activation)
+                         activation, temperature)
         self.p0 = p0
         self.p1 = p1
         self.neg_ratio = neg_ratio

@@ -44,6 +44,11 @@ parser.add_argument(
     action='store_true',
     default=False,
     help='Whether evaluate the cov matrix.')
+parser.add_argument(
+    '--stop_acc',
+    action='store_true',
+    default=False,
+    help='Whether early stop by acc.')
 
 # Common hyper-parameters.
 parser.add_argument(
@@ -61,6 +66,8 @@ parser.add_argument(
     default=0.5,
     help="Dropout rate (1 - keep probability).")
 parser.add_argument("--activation", default="relu")
+parser.add_argument(
+    "--temperature", type=float, default=1.0, help="Softmax temperature.")
 
 # GAT hyper-parameters.
 parser.add_argument(
@@ -103,7 +110,8 @@ model_args = {
     "num_classes": data.num_classes,
     "hidden_size": args.hidden,
     "dropout": args.dropout,
-    "activation": args.activation
+    "activation": args.activation,
+    "temperature": args.temperature
 }
 
 if args.model == "gcn":
@@ -177,7 +185,14 @@ else:
             model(data)[data.train_mask], data.y[data.train_mask])
 
 
-if hasattr(model, "predict") or (hasattr(model, "post") and model.post_type in ["regressioncgcn"]):
+if args.stop_acc:
+
+    def val_loss_fn(logits, data):
+        pred = logits[data.val_mask].max(1)[1]
+        acc = pred.eq(data.y[data.val_mask]).sum().item() / data.val_mask.sum().item()
+        return -acc
+
+elif hasattr(model, "predict") or (hasattr(model, "post") and model.post_type in ["regressioncgcn"]):
 
     def val_loss_fn(logits, data):
         return F.nll_loss(torch.log(logits[data.val_mask]), data.y[data.val_mask]).item()
