@@ -323,9 +323,9 @@ if args.verbose < 1:
         selected_accs[1], selected_accs[2], args.seed)
     model_settng = "model_%s_lr_%.6f_h_%03d_l2_%.6f" % (
         args.model, args.lr, args.hidden, args.weight_decay)
-    misc_hp = "act_%s_nh_%d_lambda_%.2f_nr_%.2f_hx_%d_p0_%.2f_p1_%.2f_do_%.2f" % (
+    misc_hp = "act_%s_nh_%d_lambda_%.2f_nr_%.2f_hx_%d_p0_%.2f_p1_%.2f_do_%.2f_temp_%d" % (
         args.activation, args.num_heads, args.lamda, args.neg_ratio,
-        args.hidden_x, args.p0, args.p1, args.dropout)
+        args.hidden_x, args.p0, args.p1, args.dropout, args.temperature)
     fname = os.path.join(result_path,
                          "_".join([results, model_settng, misc_hp]))
     with open(fname, "w") as f:
