@@ -24,9 +24,10 @@ def parse_result_file(filename):
 missing = []
 duplicate = []
 
-result_folder = "results"
+result_folder = "../results"
 models = ["regressioncgcn"]
-data_list = ["cora", "citeseer"]
+# data_list = ["cora", "citeseer"]
+data_list = ["cora"]
 nls = [20]
 
 summary = {}
@@ -51,7 +52,7 @@ for nl in nls:
             tacc_mean[m] = 0
             tacc_std[m] = 0
             num[m] = 0
-            params[m] = {"lr": None, "h": None, "lambda": None, "nr": None, "hx": None, "p0": None, "p1": None}
+            params[m] = {"lr": None, "h": None, "lambda": None, "nr": None, "hx": None, "p0": None, "p1": None, "do": None, "temp": None}
             settings[m] = {}
             settings_t[m] = {}
 
